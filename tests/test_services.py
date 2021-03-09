@@ -12,6 +12,7 @@ from custom_components.keymaster import (
     SERVICE_REFRESH_CODES,
 )
 from custom_components.keymaster.const import DOMAIN
+from homeassistant.bootstrap import async_setup_component
 from homeassistant.components.zwave import node_entity
 from homeassistant.components.zwave.const import DATA_NETWORK
 
@@ -350,9 +351,7 @@ async def test_clear_code(hass, lock_data, sent_messages, mock_openzwave, caplog
             in caplog.text
         )
 
-    with patch(
-        "custom_components.keymaster.services.async_using_zwave", return_value=True
-    ):
+    with patch("custom_components.keymaster.services.using_zwave", return_value=True):
         # Setup zwave mock
         hass.data[DATA_NETWORK] = mock_openzwave
         node = MockNode(node_id=12)
