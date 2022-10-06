@@ -121,25 +121,27 @@ async def add_code(
         ATTR_USER_CODE: usercode,
     }
 
-    if async_using_mqtt(
-        entity_id=entity_id,ent_reg=async_get_entity_registry(hass)
-    ):
+    if async_using_mqtt(entity_id=entity_id, ent_reg=async_get_entity_registry(hass)):
         _LOGGER.debug("Attempting to publish set usercode...")
         topic = f"zigbee2mqtt/{entity_id.name}/set"
-        payload = {"pin_code": {"user": code_slot, "user_type": "unrestricted", "user_enabled": True, "pin_code": usercode}}
-        servicedata = { 
+        payload = {
+            "pin_code": {
+                "user": code_slot,
+                "user_type": "unrestricted",
+                "user_enabled": True,
+                "pin_code": usercode,
+            }
+        }
+        servicedata = {
             ATTR_TOPIC: topic,
             ATTR_PAYLOAD: payload,
         }
-        await call_service(
-            hass, MQTT_DOMAIN, SERVICE_PUBLISH, servicedata
-        )
-
+        await call_service(hass, MQTT_DOMAIN, SERVICE_PUBLISH, servicedata)
 
     elif async_using_zwave_js(
         entity_id=entity_id, ent_reg=async_get_entity_registry(hass)
     ):
-        _LOGGER.debug("Attempting to call set_usercode...")    
+        _LOGGER.debug("Attempting to call set_usercode...")
         servicedata[ATTR_ENTITY_ID] = entity_id
         await call_service(
             hass, ZWAVE_JS_DOMAIN, SERVICE_SET_LOCK_USERCODE, servicedata
@@ -151,20 +153,23 @@ async def add_code(
 
 async def clear_code(hass: HomeAssistant, entity_id: str, code_slot: int) -> None:
     """Clear the usercode from a code slot."""
-    if async_using_mqtt(
-        entity_id=entity_id,ent_reg=async_get_entity_registry(hass)
-    ):
+    if async_using_mqtt(entity_id=entity_id, ent_reg=async_get_entity_registry(hass)):
         _LOGGER.debug("Attempting to publish disable usercode...")
         usercode = 0
         topic = f"zigbee2mqtt/{entity_id.name}/set"
-        payload = {"pin_code": {"user": code_slot, "user_type": "non_access", "user_enabled": False, "pin_code": usercode}}
-        servicedata = { 
+        payload = {
+            "pin_code": {
+                "user": code_slot,
+                "user_type": "non_access",
+                "user_enabled": False,
+                "pin_code": usercode,
+            }
+        }
+        servicedata = {
             ATTR_TOPIC: topic,
             ATTR_PAYLOAD: payload,
         }
-        await call_service(
-            hass, MQTT_DOMAIN, SERVICE_PUBLISH, servicedata
-        )    
+        await call_service(hass, MQTT_DOMAIN, SERVICE_PUBLISH, servicedata)
 
     elif async_using_zwave_js(
         entity_id=entity_id, ent_reg=async_get_entity_registry(hass)

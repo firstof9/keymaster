@@ -605,7 +605,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
 
             # User codes should be attributes of the lock entity
             for slot in entity[ATTR_USERS]:
-                code_slot = int(slot+1)
+                code_slot = int(slot + 1)
                 usercode: Optional[str] = slot[ATTR_PIN_CODE]
                 in_use: Optional[bool] = slot[ATTR_STATUS]
 
@@ -620,8 +620,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     data[code_slot] = self._invalid_code(code_slot)
                 else:
                     _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
-                    data[code_slot] = usercode                
-
+                    data[code_slot] = usercode
 
         elif async_using_zwave_js(lock=self._primary_lock):
             node: ZwaveJSNode = self._primary_lock.zwave_js_lock_node
