@@ -78,7 +78,6 @@ from .helpers import (
     get_code_slots_list,
     handle_state_change,
     handle_zwave_js_event,
-    mqtt_usercodes,
 )
 from .lock import KeymasterLock
 from .services import (
