@@ -74,6 +74,22 @@ except (ModuleNotFoundError, ImportError):
     ATTR_CODE_SLOT = "code_slot"
     from .const import ATTR_NODE_ID
 
+mqtt_supported = True
+
+try:
+    from homeassistant.components.mqtt.client import publish
+    from homeassistant.components.mqtt.const import (
+        ATTR_PAYLOAD, 
+        ATTR_QOS, 
+        ATTR_RETIAN, 
+        ATTR_TOPIC,
+        DOMAIN as MQTT_DOMAIN,
+        MQTT_CONNECTED, 
+        MQTT_DISCONNECTED,
+    )
+except (ModuleNotFoundError, ImportError):
+    mqtt_supported = False
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -105,6 +121,14 @@ def async_using_zwave_js(
         ZWAVE_JS_DOMAIN, lock, entity_id, ent_reg
     )
 
+@callback
+def async_using_mqtt(
+    lock: KeymasterLock = None, entity_id: str = None, ent_reg: EntityRegistry = None
+) -> bool:
+    """Returns whether the mqtt integration is configured."""
+    return mqtt_supported and _async_using(
+        MQTT_DOMAIN, lock, entity_id, ent_reg
+    )
 
 def get_code_slots_list(data: Dict[str, int]) -> List[int]:
     """Get list of code slots."""
@@ -138,6 +162,28 @@ async def generate_keymaster_locks(
 
     return primary_lock, child_locks
 
+async def async_update_mqtt_data(
+    hass: HomeAssistant,
+    entry_id: str,
+    primary_lock: KeymasterLock,
+    child_locks: List[KeymasterLock],
+) -> None:
+    """Update MQTT data."""
+    ent_reg = async_get_entity_registry(hass)
+    dev_reg = async_get_device_registry(hass)
+    for lock in [primary_lock, *child_locks]:
+        lock_ent_reg_entry = ent_reg.async_get(lock.lock_entity_id)
+        if not lock_ent_reg_entry:
+            continue
+        lock_dev_reg_entry = dev_reg.async_get(lock_ent_reg_entry.device_id)
+        if not lock_dev_reg_entry:
+            continue
+        friendly_name = None
+        for identifier in lock_dev_reg_entry.identifiers:
+            if identifier[0] == MQTT_DOMAIN:
+                friendly_name = lock_dev_reg_entry.name
+
+        lock.mqtt_friendly_name = friendly_name
 
 async def async_update_zwave_js_nodes_and_devices(
     hass: HomeAssistant,

@@ -18,4 +18,5 @@ class KeymasterLock:
     door_sensor_entity_id: Optional[str] = None
     zwave_js_lock_node = None
     zwave_js_lock_device: DeviceEntry = None
+    mqtt_friendly_name = None
     parent: Optional[str] = None

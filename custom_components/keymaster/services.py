@@ -25,6 +25,7 @@ from .const import (
 )
 from .exceptions import ZWaveIntegrationNotConfiguredError
 from .helpers import (
+    async_using_mqtt,
     async_using_zwave_js,
     get_code_slots_list,
     output_to_file_from_template,
@@ -42,6 +43,16 @@ try:
         SERVICE_CLEAR_LOCK_USERCODE,
         SERVICE_SET_LOCK_USERCODE,
     )
+except (ModuleNotFoundError, ImportError):
+    pass
+
+try:
+    from homeassistant.components.mqtt.const import (
+        DOMAIN as MQTT_DOMAIN,
+        ATTR_PAYLOAD,
+        ATTR_TOPIC,
+    )
+    from homeassistant.components.mqtt import SERVICE_PUBLISH
 except (ModuleNotFoundError, ImportError):
     pass
 
@@ -104,16 +115,31 @@ async def add_code(
     hass: HomeAssistant, entity_id: str, code_slot: int, usercode: str
 ) -> None:
     """Set a user code."""
-    _LOGGER.debug("Attempting to call set_usercode...")
 
     servicedata = {
         ATTR_CODE_SLOT: code_slot,
         ATTR_USER_CODE: usercode,
     }
 
-    if async_using_zwave_js(
+    if async_using_mqtt(
+        entity_id=entity_id,ent_reg=async_get_entity_registry(hass)
+    ):
+        _LOGGER.debug("Attempting to publish set usercode...")
+        topic = f"zigbee2mqtt/{entity_id.name}/set"
+        payload = {"pin_code": {"user": code_slot, "user_type": "unrestricted", "user_enabled": True, "pin_code": usercode}}
+        servicedata = { 
+            ATTR_TOPIC: topic,
+            ATTR_PAYLOAD: payload,
+        }
+        await call_service(
+            hass, MQTT_DOMAIN, SERVICE_PUBLISH, servicedata
+        )
+
+
+    elif async_using_zwave_js(
         entity_id=entity_id, ent_reg=async_get_entity_registry(hass)
     ):
+        _LOGGER.debug("Attempting to call set_usercode...")    
         servicedata[ATTR_ENTITY_ID] = entity_id
         await call_service(
             hass, ZWAVE_JS_DOMAIN, SERVICE_SET_LOCK_USERCODE, servicedata
@@ -125,11 +151,25 @@ async def add_code(
 
 async def clear_code(hass: HomeAssistant, entity_id: str, code_slot: int) -> None:
     """Clear the usercode from a code slot."""
-    _LOGGER.debug("Attempting to call clear_usercode...")
+    if async_using_mqtt(
+        entity_id=entity_id,ent_reg=async_get_entity_registry(hass)
+    ):
+        _LOGGER.debug("Attempting to publish disable usercode...")
+        usercode = 0
+        topic = f"zigbee2mqtt/{entity_id.name}/set"
+        payload = {"pin_code": {"user": code_slot, "user_type": "non_access", "user_enabled": False, "pin_code": usercode}}
+        servicedata = { 
+            ATTR_TOPIC: topic,
+            ATTR_PAYLOAD: payload,
+        }
+        await call_service(
+            hass, MQTT_DOMAIN, SERVICE_PUBLISH, servicedata
+        )    
 
-    if async_using_zwave_js(
+    elif async_using_zwave_js(
         entity_id=entity_id, ent_reg=async_get_entity_registry(hass)
     ):
+        _LOGGER.debug("Attempting to call clear_usercode...")
         servicedata = {
             ATTR_ENTITY_ID: entity_id,
             ATTR_CODE_SLOT: code_slot,

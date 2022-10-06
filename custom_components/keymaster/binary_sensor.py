@@ -17,7 +17,9 @@ from .const import (
     PRIMARY_LOCK,
 )
 from .helpers import (
+    async_update_mqtt_data,
     async_update_zwave_js_nodes_and_devices,
+    async_using_mqtt,
     async_using_zwave_js,
 )
 from .lock import KeymasterLock
@@ -26,6 +28,13 @@ try:
     from homeassistant.components.zwave_js.const import (
         DATA_CLIENT as ZWAVE_JS_DATA_CLIENT,
         DOMAIN as ZWAVE_JS_DOMAIN,
+    )
+except (ModuleNotFoundError, ImportError):
+    pass
+
+try:
+    from homeassistant.components.mqtt.const import (
+        DOMAIN as MQTT_DOMAIN,
     )
 except (ModuleNotFoundError, ImportError):
     pass
@@ -45,6 +54,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     child_locks = hass.data[DOMAIN][config_entry.entry_id][CHILD_LOCKS]
     if async_using_zwave_js(lock=primary_lock):
         entity = ZwaveJSNetworkReadySensor(primary_lock, child_locks)
+    elif async_using_mqtt(lock=primary_lock):
+        entity = MQTTNetworkReadySensor(primary_lock,child_locks)
     else:
         _LOGGER.error("Z-Wave integration not found")
         raise PlatformNotReady
@@ -153,6 +164,71 @@ class ZwaveJSNetworkReadySensor(BaseNetworkReadySensor):
         # nodes and devices
         if self.is_on:
             await async_update_zwave_js_nodes_and_devices(
+                self.hass,
+                self.lock_config_entry_id,
+                self.primary_lock,
+                self.child_locks,
+            )
+
+class MQTTNetworkReadySensor(BaseNetworkReadySensor):
+    """Binary sensor to indicate whether or not `zwave_js` network is ready."""
+
+    def __init__(
+        self, primary_lock: KeymasterLock, child_locks: List[KeymasterLock]
+    ) -> None:
+        """Initialize sensor."""
+        super().__init__(primary_lock, child_locks, ZWAVE_JS_DOMAIN)
+        self.lock_config_entry_id = None
+        self._lock_found = True
+        self.ent_reg = None
+        self._attr_should_poll = True
+
+    async def async_update(self) -> None:
+        """Update sensor."""
+        if not self.ent_reg:
+            self.ent_reg = async_get_entity_registry(self.hass)
+
+        if (
+            not self.lock_config_entry_id
+            or not self.hass.config_entries.async_get_entry(self.lock_config_entry_id)
+        ):
+            entity_id = self.primary_lock.lock_entity_id
+            lock_ent_reg_entry = self.ent_reg.async_get(entity_id)
+
+            if not lock_ent_reg_entry:
+                if self._lock_found:
+                    self._lock_found = False
+                    _LOGGER.warning("Can't find your lock %s.", entity_id)
+                return
+
+            self.lock_config_entry_id = lock_ent_reg_entry.config_entry_id
+
+            if not self._lock_found:
+                _LOGGER.info("Found your lock %s", entity_id)
+                self._lock_found = True
+
+        try:
+            if MQTT_DOMAIN not in self.hass.config.components:
+                raise KeyError
+        except KeyError:
+            _LOGGER.debug("Can't access MQTT data.")
+            self._attr_is_on = False
+            return
+        
+        mqtt = self.hass.components.mqtt
+        network_ready = bool(mqtt.is_connected)
+
+        # If network_ready and self._attr_is_on are both true or both false, we don't need
+        # to do anything since there is nothing to update.
+        if not network_ready ^ self.is_on:
+            return
+
+        self.async_set_is_on_property(network_ready, False)
+
+        # If we just turned the sensor on, we need to get the latest lock
+        # nodes and devices
+        if self.is_on:
+            await async_update_mqtt_data(
                 self.hass,
                 self.lock_config_entry_id,
                 self.primary_lock,

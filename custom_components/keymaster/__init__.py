@@ -2,6 +2,7 @@
 import asyncio
 from datetime import timedelta
 import functools
+from gc import callbacks
 import logging
 from typing import Any, Dict, List, Optional, Union
 
@@ -30,7 +31,10 @@ from .binary_sensor import generate_binary_sensor_name
 from .const import (
     ATTR_CODE_SLOT,
     ATTR_NAME,
+    ATTR_PIN_CODE,
+    ATTR_STATUS,
     ATTR_USER_CODE,
+    ATTR_USERS,
     CHILD_LOCKS,
     CONF_ALARM_LEVEL,
     CONF_ALARM_LEVEL_OR_USER_CODE_ENTITY_ID,
@@ -66,6 +70,7 @@ from .exceptions import (
 from .helpers import (
     async_reload_package_platforms,
     async_reset_code_slot_if_pin_unknown,
+    async_using_mqtt,
     async_using_zwave_js,
     delete_folder,
     delete_lock_and_base_folder,
@@ -73,6 +78,7 @@ from .helpers import (
     get_code_slots_list,
     handle_state_change,
     handle_zwave_js_event,
+    mqtt_usercodes,
 )
 from .lock import KeymasterLock
 from .services import (
@@ -591,7 +597,34 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
         #    DOMAIN, SERVICE_REFRESH_CODES, servicedata
         # )
 
-        if async_using_zwave_js(lock=self._primary_lock):
+        if async_using_mqtt(lock=self._primary_lock):
+            mqtt = self._primary_lock.mqtt_friendly_name
+            entity = self._primary_lock.lock_entity_id
+            if mqtt is None:
+                raise NativeNotFoundError
+            code_slot = 0
+
+            # User codes should be attributes of the lock entity
+            for slot in entity[ATTR_USERS]:
+                code_slot = int(slot+1)
+                usercode: Optional[str] = slot[ATTR_PIN_CODE]
+                in_use: Optional[bool] = slot[ATTR_STATUS]
+
+                if not in_use:
+                    _LOGGER.debug("DEBUG: Code slot %s not enabled", code_slot)
+                    data[code_slot] = ""
+                elif usercode and "*" in str(usercode):
+                    _LOGGER.debug(
+                        "DEBUG: Ignoring code slot with * in value for code slot %s",
+                        code_slot,
+                    )
+                    data[code_slot] = self._invalid_code(code_slot)
+                else:
+                    _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
+                    data[code_slot] = usercode                
+
+
+        elif async_using_zwave_js(lock=self._primary_lock):
             node: ZwaveJSNode = self._primary_lock.zwave_js_lock_node
             if node is None:
                 raise NativeNotFoundError
