@@ -71,24 +71,16 @@ try:
     )
 except (ModuleNotFoundError, ImportError):
     zwave_js_supported = False
-    ATTR_CODE_SLOT = "code_slot"
     from .const import ATTR_NODE_ID
 
 mqtt_supported = True
 
 try:
-    from homeassistant.components.mqtt.client import publish
-    from homeassistant.components.mqtt.const import (
-        ATTR_PAYLOAD,
-        ATTR_QOS,
-        ATTR_RETIAN,
-        ATTR_TOPIC,
-        DOMAIN as MQTT_DOMAIN,
-        MQTT_CONNECTED,
-        MQTT_DISCONNECTED,
-    )
+    from homeassistant.components.mqtt.const import DOMAIN as MQTT_DOMAIN
 except (ModuleNotFoundError, ImportError):
     mqtt_supported = False
+
+ATTR_CODE_SLOT = "code_slot"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,7 +92,7 @@ def _async_using(
     entity_id: Optional[str],
     ent_reg: Optional[EntityRegistry],
 ) -> bool:
-    """Base function for using_<zwave integration> logic."""
+    """Base function for using_<integration> logic."""
     if not (lock or (entity_id and ent_reg)):
         raise Exception("Missing arguments")
 

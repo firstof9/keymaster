@@ -57,7 +57,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     elif async_using_mqtt(lock=primary_lock):
         entity = MQTTNetworkReadySensor(primary_lock, child_locks)
     else:
-        _LOGGER.error("Z-Wave integration not found")
+        _LOGGER.error("Z-Wave/MQTT integration not found")
         raise PlatformNotReady
 
     async_add_entities([entity], True)
@@ -172,7 +172,7 @@ class ZwaveJSNetworkReadySensor(BaseNetworkReadySensor):
 
 
 class MQTTNetworkReadySensor(BaseNetworkReadySensor):
-    """Binary sensor to indicate whether or not `zwave_js` network is ready."""
+    """Binary sensor to indicate whether or not MQTT is ready."""
 
     def __init__(
         self, primary_lock: KeymasterLock, child_locks: List[KeymasterLock]
