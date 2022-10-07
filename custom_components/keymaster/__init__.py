@@ -325,6 +325,8 @@ async def system_health_check(hass: HomeAssistant, config_entry: ConfigEntry) ->
 
     if async_using_zwave_js(lock=primary_lock):
         hass.data[DOMAIN][INTEGRATION] = "zwave_js"
+    elif async_using_mqtt(lock=primary_lock):
+        hass.data[DOMAIN][INTEGRATION] = "mqtt"
     else:
         hass.data[DOMAIN][INTEGRATION] = "unknown"
 
@@ -560,6 +562,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 slugify(generate_binary_sensor_name(self._primary_lock.lock_name)),
             )
         if self.network_sensor is None:
+            _LOGGER.warning("Network sensor not ready.")
             raise UpdateFailed
         try:
             network_ready = self.hass.states.get(self.network_sensor)
