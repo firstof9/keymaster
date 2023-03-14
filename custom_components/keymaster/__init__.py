@@ -9,6 +9,10 @@ from typing import Any, Dict, List, Optional, Union
 import voluptuous as vol
 
 from homeassistant.components.persistent_notification import async_create, async_dismiss
+from homeassistant.components.mqtt import (
+    DOMAIN as MQTT_DOMAIN,
+    ReceiveMessage as MQTTReceiveMessage,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -17,7 +21,7 @@ from homeassistant.const import (
     STATE_ON,
     STATE_UNLOCKED,
 )
-from homeassistant.core import Config, CoreState, Event, HomeAssistant, ServiceCall
+from homeassistant.core import Config, CoreState, Event, HomeAssistant, ServiceCall, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_registry import (
     EntityRegistry,
@@ -61,6 +65,7 @@ from .const import (
     VERSION,
 )
 from .exceptions import (
+    MQTTIntegrationNotConfiguredError,
     NoNodeSpecifiedError,
     NotFoundError as NativeNotFoundError,
     NotSupportedError as NativeNotSupportedError,
@@ -506,6 +511,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
     def __init__(
         self, hass: HomeAssistant, config_entry: ConfigEntry, ent_reg: EntityRegistry
     ) -> None:
+        self._hass = hass
         self._primary_lock: KeymasterLock = hass.data[DOMAIN][config_entry.entry_id][
             PRIMARY_LOCK
         ]
@@ -600,30 +606,74 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
         # )
 
         if async_using_mqtt(lock=self._primary_lock):
-            mqtt = self._primary_lock.mqtt_friendly_name
+            name = self._primary_lock.mqtt_friendly_name
             entity = self._primary_lock.lock_entity_id
-            if mqtt is None:
+            if name is None:
                 raise NativeNotFoundError
             code_slot = 0
 
-            # User codes should be attributes of the lock entity
-            for slot in entity[ATTR_USERS]:
-                code_slot = int(slot + 1)
-                usercode: Optional[str] = slot[ATTR_PIN_CODE]
-                in_use: Optional[bool] = slot[ATTR_STATUS]
+            # User codes should be attributes of the lock entity (method 1)
+            if entity[ATTR_USERS] is not None: 
+                for slot in entity[ATTR_USERS]:
+                    code_slot = int(slot + 1)
+                    usercode: Optional[str] = slot[ATTR_PIN_CODE]
+                    in_use: Optional[bool] = slot[ATTR_STATUS]
 
-                if not in_use:
-                    _LOGGER.debug("DEBUG: Code slot %s not enabled", code_slot)
-                    data[code_slot] = ""
-                elif usercode and "*" in str(usercode):
-                    _LOGGER.debug(
-                        "DEBUG: Ignoring code slot with * in value for code slot %s",
-                        code_slot,
+                    if not in_use:
+                        _LOGGER.debug("DEBUG: Code slot %s not enabled", code_slot)
+                        data[code_slot] = ""
+                    elif usercode and "*" in str(usercode):
+                        _LOGGER.debug(
+                            "DEBUG: Ignoring code slot with * in value for code slot %s",
+                            code_slot,
+                        )
+                        data[code_slot] = self._invalid_code(code_slot)
+                    else:
+                        _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
+                        data[code_slot] = usercode
+            # MQTT request pins
+            # topic: zigbee2mqtt/<NAME>/get
+            # payload { "pin_code": "" }
+            else:
+                if MQTT_DOMAIN not in self._hass.config.components:
+                    raise MQTTIntegrationNotConfiguredError
+                mqtt = self._hass.components.mqtt
+
+                topic = f"zigbee2mqtt/{name}/get"
+                payload = { "pin_code": "" }
+
+                @callback
+                def internal_callback(msg: MQTTReceiveMessage) -> None:
+                    """Parse usercode data."""
+                    if ATTR_USERS in msg:
+                        for slot in msg[ATTR_USERS]:
+                            code_slot = int(slot + 1)
+                            usercode: Optional[str] = slot[ATTR_PIN_CODE]
+                            in_use: Optional[bool] = slot[ATTR_STATUS]
+
+                            if not in_use:
+                                _LOGGER.debug("DEBUG: Code slot %s not enabled", code_slot)
+                                data[code_slot] = ""
+                            elif usercode and "*" in str(usercode):
+                                _LOGGER.debug(
+                                    "DEBUG: Ignoring code slot with * in value for code slot %s",
+                                    code_slot,
+                                )
+                                data[code_slot] = self._invalid_code(code_slot)
+                            else:
+                                _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
+                                data[code_slot] = usercode
+                    else:
+                        _LOGGER.error("Trouble parsing repsonse: %s", msg)
+
+                self._hass.async_create_task(
+                    mqtt.async_subscribe(topic, internal_callback)
                     )
-                    data[code_slot] = self._invalid_code(code_slot)
-                else:
-                    _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
-                    data[code_slot] = usercode
+                
+                # Send the request
+                self._hass.async_create_task(
+                    mqtt.async_publish(self._hass, topic, payload)
+                )
 
         elif async_using_zwave_js(lock=self._primary_lock):
             node: ZwaveJSNode = self._primary_lock.zwave_js_lock_node
