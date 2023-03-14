@@ -613,7 +613,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
             code_slot = 0
 
             # User codes should be attributes of the lock entity (method 1)
-            if entity[ATTR_USERS] is not None: 
+            if ATTR_USERS in entity and entity[ATTR_USERS] is not None: 
                 for slot in entity[ATTR_USERS]:
                     code_slot = int(slot + 1)
                     usercode: Optional[str] = slot[ATTR_PIN_CODE]
