@@ -619,8 +619,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
                     data[code_slot] = usercode
-            coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id][COORDINATOR]
-            coordinator.async_set_updated_data(data)                    
+            self.data = data
 
         else:
             _LOGGER.error("Trouble parsing repsonse: %s", msg)
@@ -723,4 +722,5 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
         else:
             raise ZWaveIntegrationNotConfiguredError
 
-        return data
+        self.data = data
+        return self.data
