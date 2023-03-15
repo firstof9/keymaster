@@ -594,6 +594,37 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 return {}
             raise UpdateFailed from err
 
+    @callback
+    def internal_callback(self, msg: MQTTReceiveMessage) -> None:
+        """Parse usercode data."""
+        data = {CONF_LOCK_ENTITY_ID: self._primary_lock.lock_entity_id}
+        payload = json.loads(msg.payload)
+        if ATTR_USERS in payload:
+            for slot in payload[ATTR_USERS]:
+                code_slot = int(slot) + 1
+                in_use: Optional[bool] = True if payload[ATTR_USERS][slot][ATTR_STATUS] == "enabled" else False
+                if ATTR_PIN_CODE in payload[ATTR_USERS][slot]:
+                    usercode: Optional[str] = payload[ATTR_USERS][slot][ATTR_PIN_CODE]
+
+                if not in_use:
+                    _LOGGER.debug("DEBUG: Code slot %s not enabled", code_slot)
+                    data[code_slot] = ""
+                elif usercode and "*" in str(usercode):
+                    _LOGGER.debug(
+                        "DEBUG: Ignoring code slot with * in value for code slot %s",
+                        code_slot,
+                    )
+                    data[code_slot] = self._invalid_code(code_slot)
+                else:
+                    _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
+                    data[code_slot] = usercode
+            coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id][COORDINATOR]
+            coordinator.async_set_updated_data(data)                    
+
+        else:
+            _LOGGER.error("Trouble parsing repsonse: %s", msg)
+
+
     async def _async_update(self) -> Dict[Union[str, int], Any]:
         """Update usercodes."""
         # loop to get user code data from entity_id node
@@ -647,35 +678,9 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 payload = { "pin_code": "" }
                 reply_topic = f"zigbee2mqtt/{name}"
 
-                @callback
-                def internal_callback(msg: MQTTReceiveMessage) -> None:
-                    """Parse usercode data."""
-                    payload = json.loads(msg.payload)
-                    if ATTR_USERS in payload:
-                        for slot in payload[ATTR_USERS]:
-                            code_slot = int(slot) + 1
-                            in_use: Optional[bool] = True if payload[ATTR_USERS][slot][ATTR_STATUS] == "enabled" else False
-                            if ATTR_PIN_CODE in payload[ATTR_USERS][slot]:
-                                usercode: Optional[str] = payload[ATTR_USERS][slot][ATTR_PIN_CODE]
-
-                            if not in_use:
-                                _LOGGER.debug("DEBUG: Code slot %s not enabled", code_slot)
-                                data[code_slot] = ""
-                            elif usercode and "*" in str(usercode):
-                                _LOGGER.debug(
-                                    "DEBUG: Ignoring code slot with * in value for code slot %s",
-                                    code_slot,
-                                )
-                                data[code_slot] = self._invalid_code(code_slot)
-                            else:
-                                _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
-                                data[code_slot] = usercode
-                    else:
-                        _LOGGER.error("Trouble parsing repsonse: %s", msg)
-
                 _LOGGER.debug("KeyMaster: Attempting to subscribe to: %s", reply_topic)
                 self._hass.async_create_task(
-                    mqtt.async_subscribe(reply_topic, internal_callback)
+                    mqtt.async_subscribe(reply_topic, self.internal_callback)
                     )
                 
                 _LOGGER.debug("KeyMaster: Attempting to send payload: %s to topic: %s", payload, command_topic)
