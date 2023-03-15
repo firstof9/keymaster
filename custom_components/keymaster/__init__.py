@@ -523,6 +523,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
         self.ent_reg = ent_reg
         self.network_sensor = None
         self.slots = None
+        self._subscribed = None
         super().__init__(
             hass,
             _LOGGER,
@@ -678,10 +679,12 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 payload = '{ "pin_code": "" }'
                 reply_topic = f"zigbee2mqtt/{name}"
 
-                _LOGGER.debug("KeyMaster: Attempting to subscribe to: %s", reply_topic)
-                self._hass.async_create_task(
-                    mqtt.async_subscribe(reply_topic, self.internal_callback)
-                    )
+                if not self._subscribed:
+                    _LOGGER.debug("KeyMaster: Attempting to subscribe to: %s", reply_topic)
+                    self._hass.async_create_task(
+                        mqtt.async_subscribe(reply_topic, self.internal_callback)
+                        )
+                    self._subscribed = True
                 
                 _LOGGER.debug("KeyMaster: Attempting to send payload: %s to topic: %s", payload, command_topic)
                 # Send the request
