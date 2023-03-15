@@ -1,5 +1,6 @@
 """Services for keymaster."""
 import logging
+import json
 import os
 from typing import Any, Dict, Mapping
 
@@ -148,7 +149,7 @@ async def add_code(
             }
         }
         # Send the request
-        hass.async_create_task(mqtt.async_publish(hass, topic, payload))
+        hass.async_create_task(mqtt.async_publish(hass, topic, json.dumps(payload)))
 
     elif async_using_zwave_js(
         entity_id=entity_id, ent_reg=async_get_entity_registry(hass)
@@ -186,7 +187,7 @@ async def clear_code(
             }
         }
         # Send the request
-        hass.async_create_task(mqtt.async_publish(hass, topic, payload))
+        hass.async_create_task(mqtt.async_publish(hass, topic, json.dumps(payload)))
 
     elif async_using_zwave_js(
         entity_id=entity_id, ent_reg=async_get_entity_registry(hass)
