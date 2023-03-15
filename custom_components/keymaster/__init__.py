@@ -645,8 +645,9 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 @callback
                 def internal_callback(msg: MQTTReceiveMessage) -> None:
                     """Parse usercode data."""
-                    if ATTR_USERS in msg:
-                        for slot in msg[ATTR_USERS]:
+                    payload = msg.payload
+                    if ATTR_USERS in payload:
+                        for slot in payload[ATTR_USERS]:
                             code_slot = int(slot + 1)
                             usercode: Optional[str] = slot[ATTR_PIN_CODE]
                             in_use: Optional[bool] = slot[ATTR_STATUS]
