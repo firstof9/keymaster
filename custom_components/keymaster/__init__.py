@@ -639,8 +639,9 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     raise MQTTIntegrationNotConfiguredError
                 mqtt = self._hass.components.mqtt
 
-                topic = f"zigbee2mqtt/{name}/get"
+                command_topic = f"zigbee2mqtt/{name}/get"
                 payload = { "pin_code": "" }
+                reply_topic = f"zigbee2mqtt/{name}"
 
                 @callback
                 def internal_callback(msg: MQTTReceiveMessage) -> None:
@@ -668,12 +669,12 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                         _LOGGER.error("Trouble parsing repsonse: %s", msg)
 
                 self._hass.async_create_task(
-                    mqtt.async_subscribe(topic, internal_callback)
+                    mqtt.async_subscribe(reply_topic, internal_callback)
                     )
                 
                 # Send the request
                 self._hass.async_create_task(
-                    mqtt.async_publish(self._hass, topic, payload)
+                    mqtt.async_publish(self._hass, command_topic, payload)
                 )
 
         elif async_using_zwave_js(lock=self._primary_lock):
