@@ -607,6 +607,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
         # )
 
         if async_using_mqtt(lock=self._primary_lock):
+            _LOGGER.debug("KeyMaster: Using MQTT ...")
             name = self._primary_lock.mqtt_friendly_name
             entity = self._primary_lock.lock_entity_id
             if name is None:
@@ -615,6 +616,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
 
             # User codes should be attributes of the lock entity (method 1)
             if ATTR_USERS in entity and entity[ATTR_USERS] is not None: 
+                _LOGGER.debug("KeyMaster: MQTT Method 1 ...")
                 for slot in entity[ATTR_USERS]:
                     code_slot = int(slot + 1)
                     usercode: Optional[str] = slot[ATTR_PIN_CODE]
@@ -636,6 +638,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
             # topic: zigbee2mqtt/<NAME>/get
             # payload { "pin_code": "" }
             else:
+                _LOGGER.debug("KeyMaster: MQTT Method 2 ...")
                 if MQTT_DOMAIN not in self._hass.config.components:
                     raise MQTTIntegrationNotConfiguredError
                 mqtt = self._hass.components.mqtt
@@ -670,10 +673,12 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     else:
                         _LOGGER.error("Trouble parsing repsonse: %s", msg)
 
+                _LOGGER.debug("KeyMaster: Attempting to subscribe to: %s", reply_topic)
                 self._hass.async_create_task(
                     mqtt.async_subscribe(reply_topic, internal_callback)
                     )
                 
+                _LOGGER.debug("KeyMaster: Attempting to send payload: %s to topic: %s", payload, command_topic)
                 # Send the request
                 self._hass.async_create_task(
                     mqtt.async_publish(self._hass, command_topic, payload)
