@@ -22,7 +22,14 @@ from homeassistant.const import (
     STATE_ON,
     STATE_UNLOCKED,
 )
-from homeassistant.core import Config, CoreState, Event, HomeAssistant, ServiceCall, callback
+from homeassistant.core import (
+    Config,
+    CoreState,
+    Event,
+    HomeAssistant,
+    ServiceCall,
+    callback,
+)
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_registry import (
     EntityRegistry,
@@ -211,7 +218,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         entity_id = service.data[ATTR_ENTITY_ID]
         code_slot = service.data[ATTR_CODE_SLOT]
         usercode = service.data[ATTR_USER_CODE]
-        await add_code(hass, entity_id, code_slot, usercode)
+        await add_code(hass, config_entry, entity_id, code_slot, usercode)
 
     hass.services.async_register(
         DOMAIN,
@@ -232,7 +239,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         _LOGGER.debug("Clear Code service: %s", service)
         entity_id = service.data[ATTR_ENTITY_ID]
         code_slot = service.data[ATTR_CODE_SLOT]
-        await clear_code(hass, entity_id, code_slot)
+        await clear_code(hass, config_entry, entity_id, code_slot)
 
     hass.services.async_register(
         DOMAIN,
@@ -603,7 +610,11 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
         if ATTR_USERS in payload:
             for slot in payload[ATTR_USERS]:
                 code_slot = int(slot) + 1
-                in_use: Optional[bool] = True if payload[ATTR_USERS][slot][ATTR_STATUS] == "enabled" else False
+                in_use: Optional[bool] = (
+                    True
+                    if payload[ATTR_USERS][slot][ATTR_STATUS] == "enabled"
+                    else False
+                )
                 if ATTR_PIN_CODE in payload[ATTR_USERS][slot]:
                     usercode: Optional[str] = payload[ATTR_USERS][slot][ATTR_PIN_CODE]
 
@@ -623,7 +634,6 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
 
         else:
             _LOGGER.error("Trouble parsing repsonse: %s", msg)
-
 
     async def _async_update(self) -> Dict[Union[str, int], Any]:
         """Update usercodes."""
@@ -646,7 +656,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
             code_slot = 0
 
             # User codes should be attributes of the lock entity (method 1)
-            if ATTR_USERS in entity and entity[ATTR_USERS] is not None: 
+            if ATTR_USERS in entity and entity[ATTR_USERS] is not None:
                 _LOGGER.debug("KeyMaster: MQTT Method 1 ...")
                 for slot in entity[ATTR_USERS]:
                     code_slot = int(slot + 1)
@@ -663,7 +673,9 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                         )
                         data[code_slot] = self._invalid_code(code_slot)
                     else:
-                        _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
+                        _LOGGER.debug(
+                            "DEBUG: Code slot %s value: %s", code_slot, usercode
+                        )
                         data[code_slot] = usercode
             # MQTT request pins
             # topic: zigbee2mqtt/<NAME>/get
@@ -679,13 +691,19 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 reply_topic = f"zigbee2mqtt/{name}"
 
                 if not self._subscribed:
-                    _LOGGER.debug("KeyMaster: Attempting to subscribe to: %s", reply_topic)
+                    _LOGGER.debug(
+                        "KeyMaster: Attempting to subscribe to: %s", reply_topic
+                    )
                     self._hass.async_create_task(
                         mqtt.async_subscribe(reply_topic, self.internal_callback)
-                        )
+                    )
                     self._subscribed = True
-                
-                _LOGGER.debug("KeyMaster: Attempting to send payload: %s to topic: %s", payload, command_topic)
+
+                _LOGGER.debug(
+                    "KeyMaster: Attempting to send payload: %s to topic: %s",
+                    payload,
+                    command_topic,
+                )
                 # Send the request
                 self._hass.async_create_task(
                     mqtt.async_publish(self._hass, command_topic, payload)

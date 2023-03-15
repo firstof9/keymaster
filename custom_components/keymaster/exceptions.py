@@ -27,5 +27,6 @@ class NotFoundError(HomeAssistantError):
 class NotSupportedError(HomeAssistantError):
     """Raised when action is not supported."""
 
+
 class MQTTIntegrationNotConfiguredError(HomeAssistantError):
     """Raised when mqtt integration is not configured."""

@@ -3,6 +3,7 @@ import logging
 import os
 from typing import Any, Dict, Mapping
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.input_text import MODE_PASSWORD, MODE_TEXT
 from homeassistant.components.persistent_notification import create
 from homeassistant.components.script import DOMAIN as SCRIPT_DOMAIN
@@ -23,7 +24,10 @@ from .const import (
     DOMAIN,
     PRIMARY_LOCK,
 )
-from .exceptions import ZWaveIntegrationNotConfiguredError
+from .exceptions import (
+    ZWaveIntegrationNotConfiguredError,
+    MQTTIntegrationNotConfiguredError,
+)
 from .helpers import (
     async_using_mqtt,
     async_using_zwave_js,
@@ -112,7 +116,11 @@ async def refresh_codes(
 
 
 async def add_code(
-    hass: HomeAssistant, entity_id: str, code_slot: int, usercode: str
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    entity_id: str,
+    code_slot: int,
+    usercode: str,
 ) -> None:
     """Set a user code."""
 
@@ -122,21 +130,25 @@ async def add_code(
     }
 
     if async_using_mqtt(entity_id=entity_id, ent_reg=async_get_entity_registry(hass)):
+        if MQTT_DOMAIN not in hass.config.components:
+            raise MQTTIntegrationNotConfiguredError
+        mqtt = hass.components.mqtt
         _LOGGER.debug("Attempting to publish set usercode...")
-        topic = f"zigbee2mqtt/{entity_id.name}/set"
+        primary_lock: KeymasterLock = hass.data[DOMAIN][config_entry.entry_id][
+            PRIMARY_LOCK
+        ]
+        name = primary_lock.mqtt_friendly_name
+        topic = f"zigbee2mqtt/{name}/set"
         payload = {
             "pin_code": {
-                "user": code_slot,
+                "user": int(code_slot - 1),
                 "user_type": "unrestricted",
                 "user_enabled": True,
                 "pin_code": usercode,
             }
         }
-        servicedata = {
-            ATTR_TOPIC: topic,
-            ATTR_PAYLOAD: payload,
-        }
-        await call_service(hass, MQTT_DOMAIN, SERVICE_PUBLISH, servicedata)
+        # Send the request
+        hass.async_create_task(mqtt.async_publish(hass, topic, payload))
 
     elif async_using_zwave_js(
         entity_id=entity_id, ent_reg=async_get_entity_registry(hass)
@@ -151,25 +163,30 @@ async def add_code(
         raise ZWaveIntegrationNotConfiguredError
 
 
-async def clear_code(hass: HomeAssistant, entity_id: str, code_slot: int) -> None:
+async def clear_code(
+    hass: HomeAssistant, config_entry: ConfigEntry, entity_id: str, code_slot: int
+) -> None:
     """Clear the usercode from a code slot."""
     if async_using_mqtt(entity_id=entity_id, ent_reg=async_get_entity_registry(hass)):
+        if MQTT_DOMAIN not in hass.config.components:
+            raise MQTTIntegrationNotConfiguredError
+        mqtt = hass.components.mqtt
         _LOGGER.debug("Attempting to publish disable usercode...")
-        usercode = 0
-        topic = f"zigbee2mqtt/{entity_id.name}/set"
+        primary_lock: KeymasterLock = hass.data[DOMAIN][config_entry.entry_id][
+            PRIMARY_LOCK
+        ]
+        name = primary_lock.mqtt_friendly_name
+        topic = f"zigbee2mqtt/{name}/set"
         payload = {
             "pin_code": {
                 "user": code_slot,
                 "user_type": "non_access",
                 "user_enabled": False,
-                "pin_code": usercode,
+                "pin_code": "",
             }
         }
-        servicedata = {
-            ATTR_TOPIC: topic,
-            ATTR_PAYLOAD: payload,
-        }
-        await call_service(hass, MQTT_DOMAIN, SERVICE_PUBLISH, servicedata)
+        # Send the request
+        hass.async_create_task(mqtt.async_publish(hass, topic, payload))
 
     elif async_using_zwave_js(
         entity_id=entity_id, ent_reg=async_get_entity_registry(hass)
