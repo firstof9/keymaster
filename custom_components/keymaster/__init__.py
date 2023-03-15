@@ -1,5 +1,6 @@
 """keymaster Integration."""
 import asyncio
+import json
 from datetime import timedelta
 import functools
 from gc import callbacks
@@ -646,12 +647,12 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 @callback
                 def internal_callback(msg: MQTTReceiveMessage) -> None:
                     """Parse usercode data."""
-                    payload = msg.payload
+                    payload = json.loads(msg.payload)
                     if ATTR_USERS in payload:
-                        for slot in payload.get(ATTR_USERS):
+                        for slot in payload[ATTR_USERS]:
                             code_slot = int(slot + 1)
-                            usercode: Optional[str] = slot.get(ATTR_PIN_CODE)
-                            in_use: Optional[bool] = slot.get(ATTR_STATUS)
+                            usercode: Optional[str] = slot[ATTR_PIN_CODE]
+                            in_use: Optional[bool] = slot[ATTR_STATUS]
 
                             if not in_use:
                                 _LOGGER.debug("DEBUG: Code slot %s not enabled", code_slot)
