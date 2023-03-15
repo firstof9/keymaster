@@ -651,8 +651,9 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     if ATTR_USERS in payload:
                         for slot in payload[ATTR_USERS]:
                             code_slot = int(slot) + 1
-                            usercode: Optional[str] = payload[ATTR_USERS][slot][ATTR_PIN_CODE]
                             in_use: Optional[bool] = True if payload[ATTR_USERS][slot][ATTR_STATUS] == "enabled" else False
+                            if ATTR_PIN_CODE in payload[ATTR_USERS][slot]:
+                                usercode: Optional[str] = payload[ATTR_USERS][slot][ATTR_PIN_CODE]
 
                             if not in_use:
                                 _LOGGER.debug("DEBUG: Code slot %s not enabled", code_slot)
