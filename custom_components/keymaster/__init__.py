@@ -675,7 +675,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 mqtt = self._hass.components.mqtt
 
                 command_topic = f"zigbee2mqtt/{name}/get"
-                payload = { "pin_code": "" }
+                payload = '{ "pin_code": "" }'
                 reply_topic = f"zigbee2mqtt/{name}"
 
                 _LOGGER.debug("KeyMaster: Attempting to subscribe to: %s", reply_topic)
