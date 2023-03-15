@@ -718,9 +718,9 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
                     data[code_slot] = usercode
+            self.data = data
 
         else:
             raise ZWaveIntegrationNotConfiguredError
 
-        self.data = data
         return self.data
