@@ -180,7 +180,7 @@ async def clear_code(
         topic = f"zigbee2mqtt/{name}/set"
         payload = {
             "pin_code": {
-                "user": code_slot,
+                "user": int(code_slot - 1),
                 "user_type": "non_access",
                 "user_enabled": False,
                 "pin_code": "",
