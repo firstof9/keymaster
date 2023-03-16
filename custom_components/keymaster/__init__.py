@@ -687,7 +687,8 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 
                 # If we are subscribed no need to request data
                 if self._subscribed:
-                    return
+                    _LOGGER.debug("Already subscribed, sending cached data.")
+                    return self.data
                 
                 mqtt = self._hass.components.mqtt
 
