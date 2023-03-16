@@ -684,6 +684,11 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("KeyMaster: MQTT Method 2 ...")
                 if MQTT_DOMAIN not in self._hass.config.components:
                     raise MQTTIntegrationNotConfiguredError
+                
+                # If we are subscribed no need to request data
+                if self._subscribed:
+                    return
+                
                 mqtt = self._hass.components.mqtt
 
                 command_topic = f"zigbee2mqtt/{name}/get"
