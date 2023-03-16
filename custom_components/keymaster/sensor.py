@@ -113,4 +113,6 @@ class CodesSensor(CoordinatorEntity, SensorEntity):
     @property
     def available(self) -> bool:
         """Return whether sensor is available or not."""
-        return self._code_slot in self.coordinator.data
+        if self.coordinator.data is not None:
+            return self._code_slot in self.coordinator.data
+        return False
