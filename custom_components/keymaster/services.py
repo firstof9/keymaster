@@ -181,9 +181,8 @@ async def clear_code(
         payload = {
             "pin_code": {
                 "user": int(code_slot - 1),
-                "user_type": "non_access",
                 "user_enabled": False,
-                "pin_code": "",
+                "pin_code": None,
             }
         }
         # Send the request
