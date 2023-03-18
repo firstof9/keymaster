@@ -685,11 +685,6 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 if MQTT_DOMAIN not in self._hass.config.components:
                     raise MQTTIntegrationNotConfiguredError
                 
-                # If we are subscribed no need to request data
-                if self._subscribed:
-                    _LOGGER.debug("Already subscribed, sending cached data.")
-                    return self.data
-                
                 mqtt = self._hass.components.mqtt
 
                 command_topic = f"zigbee2mqtt/{name}/get"
@@ -714,6 +709,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 self._hass.async_create_task(
                     mqtt.async_publish(self._hass, command_topic, payload)
                 )
+                return self.data
 
         elif async_using_zwave_js(lock=self._primary_lock):
             node: ZwaveJSNode = self._primary_lock.zwave_js_lock_node
