@@ -630,7 +630,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     _LOGGER.debug("DEBUG: Code slot %s value: %s", code_slot, usercode)
                     data[code_slot] = usercode
-            self.data = data
+            self.data.update(data)
 
         else:
             _LOGGER.error("Trouble parsing repsonse: %s", msg)
@@ -686,9 +686,9 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     raise MQTTIntegrationNotConfiguredError
                 
                 mqtt = self._hass.components.mqtt
+                slots = self.config_entry.data[CONF_SLOTS]
 
                 command_topic = f"zigbee2mqtt/{name}/get"
-                payload = '{ "pin_code": "" }'
                 reply_topic = f"zigbee2mqtt/{name}"
 
                 if not self._subscribed:
@@ -699,16 +699,21 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                         mqtt.async_subscribe(reply_topic, self.internal_callback)
                     )
                     self._subscribed = True
+                
+                # payload = '{ "pin_code": "" }'
+                for slot in slots:
+                    payload = { "pin_code": { "user": slot }}
+                    payload = json.dumps(payload)
 
-                _LOGGER.debug(
-                    "KeyMaster: Attempting to send payload: %s to topic: %s",
-                    payload,
-                    command_topic,
-                )
-                # Send the request
-                self._hass.async_create_task(
-                    mqtt.async_publish(self._hass, command_topic, payload)
-                )
+                    _LOGGER.debug(
+                        "KeyMaster: Attempting to send payload: %s to topic: %s",
+                        payload,
+                        command_topic,
+                    )
+                    # Send the request
+                    self._hass.async_create_task(
+                        mqtt.async_publish(self._hass, command_topic, payload)
+                    )
                 return self.data
 
         elif async_using_zwave_js(lock=self._primary_lock):
