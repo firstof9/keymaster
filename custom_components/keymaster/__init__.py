@@ -701,22 +701,19 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     )
                     self._subscribed = True
                 
-                # payload = '{ "pin_code": "" }'
-                while slot <= slots:
-                    payload = { "pin_code": { "user": slot }}
-                    payload = json.dumps(payload)
+                payload = '{ "pin_code": { "user": 0 } }'
+                payload = json.dumps(payload)
 
-                    _LOGGER.debug(
-                        "KeyMaster: Attempting to send payload: %s to topic: %s",
-                        payload,
-                        command_topic,
-                    )
-                    # Send the request
-                    self._hass.async_create_task(
-                        mqtt.async_publish(self._hass, command_topic, payload)
-                    )
-                    slot = slot + 1
-                return self.data
+                _LOGGER.debug(
+                    "KeyMaster: Attempting to send payload: %s to topic: %s",
+                    payload,
+                    command_topic,
+                )
+                # Send the request
+                self._hass.async_create_task(
+                    mqtt.async_publish(self._hass, command_topic, payload)
+                )
+            return self.data
 
         elif async_using_zwave_js(lock=self._primary_lock):
             node: ZwaveJSNode = self._primary_lock.zwave_js_lock_node
