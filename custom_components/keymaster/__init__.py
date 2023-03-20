@@ -687,6 +687,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 
                 mqtt = self._hass.components.mqtt
                 slots = self.config_entry.data[CONF_SLOTS]
+                slot = 0
 
                 command_topic = f"zigbee2mqtt/{name}/get"
                 reply_topic = f"zigbee2mqtt/{name}"
