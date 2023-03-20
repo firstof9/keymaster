@@ -701,7 +701,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     self._subscribed = True
                 
                 # payload = '{ "pin_code": "" }'
-                for slot in slots:
+                while slot <= slots:
                     payload = { "pin_code": { "user": slot }}
                     payload = json.dumps(payload)
 
@@ -714,6 +714,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     self._hass.async_create_task(
                         mqtt.async_publish(self._hass, command_topic, payload)
                     )
+                    slot = slot + 1
                 return self.data
 
         elif async_using_zwave_js(lock=self._primary_lock):
