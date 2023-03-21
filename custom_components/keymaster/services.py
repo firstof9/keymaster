@@ -10,6 +10,7 @@ from homeassistant.components.persistent_notification import create
 from homeassistant.components.script import DOMAIN as SCRIPT_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import async_get as async_get_device_registry
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 from homeassistant.util import slugify
 
@@ -28,6 +29,7 @@ from .const import (
 from .exceptions import (
     ZWaveIntegrationNotConfiguredError,
     MQTTIntegrationNotConfiguredError,
+    MissingLock,
 )
 from .helpers import (
     async_using_mqtt,
@@ -138,13 +140,28 @@ async def add_code(
         primary_lock: KeymasterLock = hass.data[DOMAIN][config_entry.entry_id][
             PRIMARY_LOCK
         ]
+        if primary_lock.lock_entity_id != entity_id:
+            _LOGGER.debug("Searching for lock in registry...")
+            ent_reg = async_get_entity_registry(hass)
+            dev_reg = async_get_device_registry(hass)
+            lock_ent_reg_entry = ent_reg.async_get(entity_id)
+            if not lock_ent_reg_entry:
+                _LOGGER.error("Unable to locate lock in registry.")
+                raise MissingLock
+            lock_dev_reg_entry = dev_reg.async_get(lock_ent_reg_entry.device_id)
+            if not lock_dev_reg_entry:
+                _LOGGER.error("Unable to locate lock in registry.")
+                raise MissingLock
+            name = lock_dev_reg_entry.name
+        else:
+            name = primary_lock.mqtt_friendly_name
+
         _LOGGER.debug(
-            "Lock: %s Entity: %s MQTT Nanme: %s",
-            primary_lock.lock_name,
-            primary_lock.lock_entity_id,
-            primary_lock.mqtt_friendly_name,
+            "Entity: %s MQTT Nanme: %s",
+            entity_id,
+            name,
         )
-        name = primary_lock.mqtt_friendly_name
+
         topic = f"zigbee2mqtt/{name}/set"
         payload = {
             "pin_code": {
@@ -182,13 +199,28 @@ async def clear_code(
         primary_lock: KeymasterLock = hass.data[DOMAIN][config_entry.entry_id][
             PRIMARY_LOCK
         ]
+        if primary_lock.lock_entity_id != entity_id:
+            _LOGGER.debug("Searching for lock in registry...")
+            ent_reg = async_get_entity_registry(hass)
+            dev_reg = async_get_device_registry(hass)
+            lock_ent_reg_entry = ent_reg.async_get(entity_id)
+            if not lock_ent_reg_entry:
+                _LOGGER.error("Unable to locate lock in registry.")
+                raise MissingLock
+            lock_dev_reg_entry = dev_reg.async_get(lock_ent_reg_entry.device_id)
+            if not lock_dev_reg_entry:
+                _LOGGER.error("Unable to locate lock in registry.")
+                raise MissingLock
+            name = lock_dev_reg_entry.name
+        else:
+            name = primary_lock.mqtt_friendly_name
+
         _LOGGER.debug(
-            "Lock: %s Entity: %s MQTT Nanme: %s",
-            primary_lock.lock_name,
-            primary_lock.lock_entity_id,
-            primary_lock.mqtt_friendly_name,
-        )        
-        name = primary_lock.mqtt_friendly_name
+            "Entity: %s MQTT Nanme: %s",
+            entity_id,
+            name,
+        )
+        
         topic = f"zigbee2mqtt/{name}/set"
         payload = {
             "pin_code": {

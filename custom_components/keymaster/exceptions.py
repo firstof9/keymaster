@@ -30,3 +30,7 @@ class NotSupportedError(HomeAssistantError):
 
 class MQTTIntegrationNotConfiguredError(HomeAssistantError):
     """Raised when mqtt integration is not configured."""
+
+
+class MissingLock(HomeAssistantError):
+    """Unable to locate lock in entity registry."""
