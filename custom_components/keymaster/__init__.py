@@ -684,7 +684,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("KeyMaster: MQTT Method 2 ...")
                 if MQTT_DOMAIN not in self._hass.config.components:
                     raise MQTTIntegrationNotConfiguredError
-                
+
                 mqtt = self._hass.components.mqtt
                 slots = self.config_entry.data[CONF_SLOTS]
                 slot = 0
@@ -700,8 +700,8 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                         mqtt.async_subscribe(reply_topic, self.internal_callback)
                     )
                     self._subscribed = True
-                
-                payload = '{ "pin_code": { "user": 0 } }'
+
+                payload = {"pin_code": {"user": 0}}
                 payload = json.dumps(payload)
 
                 _LOGGER.debug(

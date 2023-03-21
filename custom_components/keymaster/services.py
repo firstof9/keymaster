@@ -138,6 +138,12 @@ async def add_code(
         primary_lock: KeymasterLock = hass.data[DOMAIN][config_entry.entry_id][
             PRIMARY_LOCK
         ]
+        _LOGGER.debug(
+            "Lock: %s Entity: %s MQTT Nanme: %s",
+            primary_lock.lock_name,
+            primary_lock.lock_entity_id,
+            primary_lock.mqtt_friendly_name,
+        )
         name = primary_lock.mqtt_friendly_name
         topic = f"zigbee2mqtt/{name}/set"
         payload = {
@@ -145,7 +151,7 @@ async def add_code(
                 "user": int(code_slot - 1),
                 "user_type": "unrestricted",
                 "user_enabled": True,
-                "pin_code": usercode,
+                "pin_code": int(usercode),
             }
         }
         # Send the request
@@ -176,6 +182,12 @@ async def clear_code(
         primary_lock: KeymasterLock = hass.data[DOMAIN][config_entry.entry_id][
             PRIMARY_LOCK
         ]
+        _LOGGER.debug(
+            "Lock: %s Entity: %s MQTT Nanme: %s",
+            primary_lock.lock_name,
+            primary_lock.lock_entity_id,
+            primary_lock.mqtt_friendly_name,
+        )        
         name = primary_lock.mqtt_friendly_name
         topic = f"zigbee2mqtt/{name}/set"
         payload = {
