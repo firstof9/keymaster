@@ -701,7 +701,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                     )
                     self._subscribed = True
 
-                payload = {"pin_code": {"user": 0}}
+                payload = {"pin_code": {"user": ""}}
                 payload = json.dumps(payload)
 
                 _LOGGER.debug(
