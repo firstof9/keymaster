@@ -637,7 +637,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
 
     async def _async_refresh_data(self, data=None) -> None:
         """Delay MQTT data updates."""
-        delta = timedelta(minute=5)
+        delta = timedelta(minutes=5)
         now = datetime.now()
         next_update = (now + delta).replace(microsecond=0, second=1, minute=0)
         wait_seconds = (next_update - now).seconds
@@ -741,7 +741,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 self._hass.async_create_task(
                     mqtt.async_publish(self._hass, command_topic, payload)
                 )
-                delta = timedelta(minute=5)
+                delta = timedelta(minutes=5)
                 now = datetime.now()
                 next_update = (now + delta).replace(microsecond=0, second=1, minute=0)
                 wait_seconds = (next_update - now).seconds
