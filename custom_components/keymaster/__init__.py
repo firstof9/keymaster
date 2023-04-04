@@ -1,15 +1,15 @@
 """keymaster Integration."""
 import asyncio
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 import functools
-from gc import callbacks
 import logging
 from typing import Any, Dict, List, Optional, Union
 
 import voluptuous as vol
 
 from homeassistant.components.persistent_notification import async_create, async_dismiss
+from homeassistant.helpers.event import async_call_later
 from homeassistant.components.mqtt import (
     DOMAIN as MQTT_DOMAIN,
     ReceiveMessage as MQTTReceiveMessage,
@@ -635,6 +635,34 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
         else:
             _LOGGER.error("Trouble parsing repsonse: %s", msg)
 
+    async def _async_refresh_data(self, data=None) -> None:
+        """Delay MQTT data updates."""
+        delta = timedelta(minute=5)
+        now = datetime.now()
+        next_update = (now + delta).replace(microsecond=0, second=1, minute=0)
+        wait_seconds = (next_update - now).seconds
+        mqtt = self._hass.components.mqtt
+
+        _LOGGER.debug("Next update in %s seconds.", wait_seconds)
+        async_call_later(self.hass, wait_seconds, self._async_refresh_data)
+        try:
+            name = self._primary_lock.mqtt_friendly_name
+            command_topic = f"zigbee2mqtt/{name}/get"
+            payload = {"pin_code": ""}
+            payload = json.dumps(payload)
+
+            _LOGGER.debug(
+                "KeyMaster: Attempting to send payload: %s to topic: %s",
+                payload,
+                command_topic,
+            )
+            # Send the request
+            self._hass.async_create_task(
+                mqtt.async_publish(self._hass, command_topic, payload)
+            )
+        except Exception as exception:
+            raise UpdateFailed() from exception
+
     async def _async_update(self) -> Dict[Union[str, int], Any]:
         """Update usercodes."""
         # loop to get user code data from entity_id node
@@ -680,7 +708,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
             # MQTT request pins
             # topic: zigbee2mqtt/<NAME>/get
             # payload { "pin_code": "" }
-            else:
+            elif len(self.data) == 0:
                 _LOGGER.debug("KeyMaster: MQTT Method 2 ...")
                 if MQTT_DOMAIN not in self._hass.config.components:
                     raise MQTTIntegrationNotConfiguredError
@@ -713,6 +741,13 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 self._hass.async_create_task(
                     mqtt.async_publish(self._hass, command_topic, payload)
                 )
+                delta = timedelta(minute=5)
+                now = datetime.now()
+                next_update = (now + delta).replace(microsecond=0, second=1, minute=0)
+                wait_seconds = (next_update - now).seconds
+                _LOGGER.debug("Next update in %s seconds.", wait_seconds)
+                async_call_later(self.hass, wait_seconds, self._async_refresh_data)
+
             return self.data
 
         elif async_using_zwave_js(lock=self._primary_lock):
