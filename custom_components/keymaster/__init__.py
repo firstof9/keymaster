@@ -644,7 +644,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
         mqtt = self._hass.components.mqtt
 
         _LOGGER.debug("Next update in %s seconds.", wait_seconds)
-        async_call_later(self.hass, wait_seconds, self._async_refresh_data)
+        async_call_later(self._hass, wait_seconds, self._async_refresh_data)
         try:
             name = self._primary_lock.mqtt_friendly_name
             command_topic = f"zigbee2mqtt/{name}/get"
@@ -682,6 +682,8 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
             if name is None:
                 raise NativeNotFoundError
             code_slot = 0
+
+            _LOGGER.debug("KeyMaster: Data length: %s", len(self.data))
 
             # User codes should be attributes of the lock entity (method 1)
             if ATTR_USERS in entity and entity[ATTR_USERS] is not None:
@@ -746,7 +748,7 @@ class LockUsercodeUpdateCoordinator(DataUpdateCoordinator):
                 next_update = (now + delta).replace(microsecond=0, second=1, minute=0)
                 wait_seconds = (next_update - now).seconds
                 _LOGGER.debug("Next update in %s seconds.", wait_seconds)
-                async_call_later(self.hass, wait_seconds, self._async_refresh_data)
+                async_call_later(self._hass, wait_seconds, self._async_refresh_data)
 
             return self.data
 

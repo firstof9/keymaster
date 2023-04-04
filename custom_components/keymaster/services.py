@@ -168,7 +168,7 @@ async def add_code(
                 "user": int(code_slot - 1),
                 "user_type": "unrestricted",
                 "user_enabled": True,
-                "pin_code": int(usercode),
+                "pin_code": str(usercode),
             }
         }
         # Send the request
