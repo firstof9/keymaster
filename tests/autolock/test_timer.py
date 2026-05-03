@@ -281,6 +281,37 @@ async def test_action_failure_preserves_entry_for_replay(hass, store, kmlock):
     assert not timer.is_running, "is_running must be False after fire completes"
 
 
+async def test_start_after_in_process_action_failure_rearms(hass, store, kmlock):
+    """A failed in-process fire leaves the timer rearmable via start().
+
+    After in-process action failure: state stays ACTIVE, entry is preserved,
+    is_running=False (the ScheduledFire is done). A subsequent start() must
+    cancel any lingering scheduled handle and re-arm cleanly without raising.
+    """
+
+    async def failing_action(km: KeymasterLock, _now: dt) -> None:
+        raise RuntimeError("lock service unavailable")
+
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock, action=AsyncMock(wraps=failing_action))
+    await timer.recover()
+
+    with patch(
+        "custom_components.keymaster.autolock.scheduler.async_call_later"
+    ) as mock_call_later:
+        await timer.start(duration=300)
+        captured_callback = mock_call_later.call_args.kwargs["action"]
+
+    await captured_callback(dt_util.utcnow())  # action raises
+
+    assert timer.state == TimerState.ACTIVE
+    assert not timer.is_running
+
+    # New start() must succeed and re-arm
+    await timer.start(duration=600)
+    assert timer.is_running
+    assert timer.duration == 600
+
+
 async def test_recovery_action_failure_preserves_entry(hass, store, kmlock):
     """Recovery-fire action failure also preserves the entry.
 

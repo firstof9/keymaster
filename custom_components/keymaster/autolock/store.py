@@ -37,12 +37,20 @@ class _TimerStoreEntryDict(TypedDict):
 class TimerEntry:
     """A typed, validated timer entry.
 
-    Use TimerStore to read/write these — direct construction is fine
-    for tests and inter-layer signatures.
+    Validates on construction so direct callers (tests, AutolockTimer.start)
+    get the same guarantees as parsed-from-disk entries: end_time must be
+    timezone-aware, duration must be non-negative.
     """
 
     end_time: dt
     duration: int
+
+    def __post_init__(self) -> None:
+        """Reject naive datetimes and negative durations at construction."""
+        if self.end_time.tzinfo is None:
+            raise ValueError("TimerEntry.end_time must be timezone-aware")
+        if self.duration < 0:
+            raise ValueError(f"TimerEntry.duration must be non-negative, got {self.duration}")
 
 
 class TimerStore:
@@ -54,7 +62,7 @@ class TimerStore:
     """
 
     def __init__(self, hass: HomeAssistant) -> None:
-        """Initialize the store backed by HA Store."""
+        """Initialize with a fresh asyncio.Lock and the HA Store handle."""
         self._store: Store[dict[str, _TimerStoreEntryDict]] = Store(
             hass, TIMER_STORAGE_VERSION, TIMER_STORAGE_KEY
         )

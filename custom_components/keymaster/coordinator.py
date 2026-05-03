@@ -963,8 +963,26 @@ class KeymasterCoordinator(DataUpdateCoordinator):
                 message=f"Unable to lock {kmlock.lock_name} as the sensor indicates the door is currently opened.  The operation will be automatically retried when the door is closed.",
                 notification_id=f"{slugify(kmlock.lock_name).lower()}_autolock_door_open",
             )
-        else:
+            return
+        try:
             await self._lock_lock(kmlock=kmlock)
+        except Exception:
+            # AutolockTimer preserves the store entry on action failure
+            # (replays on next restart), but the user has no UI signal
+            # that the door didn't lock unless we surface it. Mirror the
+            # door-open notification pattern so the user can act now.
+            _LOGGER.exception("[timer_triggered] %s: autolock action failed", kmlock.lock_name)
+            await send_persistent_notification(
+                hass=self.hass,
+                title=f"Autolock failed for {kmlock.lock_name}",
+                message=(
+                    f"Autolock for {kmlock.lock_name} could not lock the door. "
+                    "Check the lock's connection and lock it manually if needed. "
+                    "The operation will be retried on next Home Assistant restart."
+                ),
+                notification_id=f"{slugify(kmlock.lock_name).lower()}_autolock_failed",
+            )
+            raise
 
     async def _update_door_and_lock_state(self, trigger_actions_if_changed: bool = False) -> None:
         # _LOGGER.debug("[update_door_and_lock_state] Running")

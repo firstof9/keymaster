@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, field
 from datetime import datetime as dt, time as dt_time
+import logging
 from typing import TYPE_CHECKING
 
 from .const import Synced
@@ -12,6 +13,8 @@ from .const import Synced
 if TYPE_CHECKING:
     from .autolock import AutolockTimer
     from .providers import BaseLockProvider
+
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -144,6 +147,22 @@ class KeymasterLock:
         self.retry_lock = old.retry_lock
         self.pending_retry_lock = old.pending_retry_lock
         if not self.code_slots or not old.code_slots:
+            # Loud log: silent code-slot loss would drop the user's
+            # PINs/schedules/names without any signal until they noticed
+            # codes stopped working.
+            if not self.code_slots and old.code_slots:
+                _LOGGER.error(
+                    "[KeymasterLock] %s: replacement has no code_slots; "
+                    "dropping %d configured slot(s) from the previous instance",
+                    self.lock_name,
+                    len(old.code_slots),
+                )
+            elif self.code_slots and not old.code_slots:
+                _LOGGER.warning(
+                    "[KeymasterLock] %s: previous instance had no code_slots; "
+                    "replacement keeps its defaults",
+                    self.lock_name,
+                )
             return
         for code_slot_num, new_slot in self.code_slots.items():
             old_slot = old.code_slots.get(code_slot_num)

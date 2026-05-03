@@ -6,16 +6,21 @@ reloads. It does NOT capture a kmlock reference; instead it takes a
 eliminates the "action mutates orphaned kmlock" class of races that
 plagued the previous design.
 
-State machine:
+State machine (recover() must be the first transition, from FRESH only):
 
-    FRESH ──start()──> ACTIVE ──cancel()────> DONE
-      │                  │
-      │                  └──fire (success)──> DONE
-      │                  └──fire (failure)──> ACTIVE  (re-persisted for retry)
-      │
-      └──recover() (no entry)─────────────> DONE
-      └──recover() (active entry)─────────> ACTIVE
-      └──recover() (expired entry)────────> firing → DONE / ACTIVE
+    FRESH ── recover() (no entry) ─────────> DONE
+    FRESH ── recover() (active entry) ─────> ACTIVE
+    FRESH ── recover() (expired entry) ────> ACTIVE → fire → see below
+
+    ACTIVE ── start() ─────────────────────> ACTIVE   (re-arm)
+    ACTIVE ── cancel() ────────────────────> DONE
+    ACTIVE ── fire (success) ──────────────> DONE
+    ACTIVE ── fire (action raised) ────────> ACTIVE   (entry re-persisted;
+                                                       is_running=False)
+    ACTIVE ── fire (kmlock missing) ───────> DONE     (entry removed)
+
+    DONE   ── start() ─────────────────────> ACTIVE
+    DONE   ── cancel() ────────────────────> DONE     (idempotent)
 
 Invariants:
     1. The store entry mirrors the most recent ACTIVE state. cancel() and
@@ -43,7 +48,7 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 class TimerState(Enum):
-    """Explicit lifecycle states. Transitions are checked at runtime."""
+    """Explicit lifecycle states (see module docstring for transitions)."""
 
     FRESH = "fresh"
     ACTIVE = "active"

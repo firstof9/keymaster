@@ -3,9 +3,9 @@
 Wraps `async_call_later` so callers can `await scheduled.cancel()` and
 be guaranteed that any in-flight execution of the callback has either
 completed or been cancelled before the await returns. This is what
-makes higher-layer detach/cancel safe — without this, racing a
-cancellation against an already-running callback would let the
-callback's mutations land after the caller assumed it was stopped.
+makes higher-layer cancel safe — without this, racing a cancellation
+against an already-running callback would let the callback's mutations
+land after the caller assumed it was stopped.
 """
 
 from __future__ import annotations
