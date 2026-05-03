@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime as dt, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -106,14 +106,27 @@ async def test_corrupt_entry_is_removed_on_read(hass, store, entry):
     assert "corrupt" not in raw
 
 
-async def test_naive_end_time_treated_as_utc(store):
-    """Legacy/manually-edited naive datetimes are coerced rather than rejected."""
-    # Build a deliberately-naive datetime (no tzinfo) to mimic legacy data
-    naive_iso = dt_util.utcnow().replace(tzinfo=None).isoformat()
+async def test_naive_end_time_interpreted_as_utc(store):
+    """Naive on-disk datetimes are interpreted as UTC, not local time.
+
+    Regression: an earlier version used `dt_util.as_utc()` which converts
+    from local/default-zone, so the loaded value would be wrong on any
+    non-UTC HA install. The fix uses `replace(tzinfo=UTC)` to interpret
+    the stored value as already-UTC. Compare loaded value against the
+    same instant treated as UTC — equality (not just tz-awareness) is
+    what catches the regression.
+    """
+    # Specific UTC instant: 2030-01-01 12:34:56Z
+    known_utc = dt(2030, 1, 1, 12, 34, 56, tzinfo=dt_util.UTC)
+    naive_iso = known_utc.replace(tzinfo=None).isoformat()
     await store._store.async_save({"legacy": {"end_time": naive_iso, "duration": 300}})
+
     loaded = await store.read("legacy")
     assert loaded is not None
     assert loaded.end_time.tzinfo is not None
+    # The load must produce the SAME UTC instant — `as_utc` would have
+    # shifted it by the local UTC offset on non-UTC test hosts.
+    assert loaded.end_time == known_utc
 
 
 async def test_concurrent_writes_serialized_by_lock(hass, store):

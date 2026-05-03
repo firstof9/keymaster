@@ -1233,6 +1233,31 @@ class TestLockStateEventHandlers:
 
         mock_coordinator._lock_lock.assert_called_once_with(kmlock=mock_kmlock)
 
+    async def test_timer_triggered_action_failure_notifies_and_reraises(
+        self, mock_coordinator, mock_kmlock
+    ):
+        """Surface a persistent notification AND re-raise on action failure.
+
+        When _lock_lock raises, _timer_triggered must surface a notification
+        so the user sees the failure (no UI signal otherwise until next HA
+        restart) AND re-raise so AutolockTimer._fire enters its
+        preserve-entry branch (otherwise the timer silently retires the
+        store entry, losing replay-on-restart).
+        """
+        mock_kmlock.retry_lock = True
+        mock_kmlock.door_state = STATE_CLOSED
+        mock_coordinator._lock_lock = AsyncMock(side_effect=RuntimeError("lock unavailable"))
+
+        with patch(
+            "custom_components.keymaster.coordinator.send_persistent_notification",
+            new=AsyncMock(),
+        ) as mock_send, pytest.raises(RuntimeError, match="lock unavailable"):
+            await mock_coordinator._timer_triggered(mock_kmlock, dt.now())
+
+        mock_send.assert_called_once()
+        notification_id = mock_send.call_args.kwargs["notification_id"]
+        assert "_autolock_failed" in notification_id
+
     async def test_rapid_unlock_lock_unlock_not_throttled(self, mock_coordinator, mock_kmlock):
         """Test unlock→lock→unlock within throttle window still starts the timer.
 

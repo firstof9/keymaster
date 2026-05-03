@@ -155,8 +155,17 @@ async def call_hass_service(
     service: str,
     service_data: dict[str, Any] | None = None,
     target: dict[str, Any] | None = None,
+    *,
+    raise_on_missing: bool = False,
 ) -> None:
-    """Call a hass service and log a failure on an error."""
+    """Call a hass service and log a failure on an error.
+
+    If `raise_on_missing` is True, a `ServiceNotFound` (e.g. the lock
+    entity was removed/renamed) propagates to the caller instead of
+    being swallowed with a warning. Safety-critical callers (autolock)
+    set this so the failure surfaces to user notifications rather than
+    silently retiring the timer as if the action had succeeded.
+    """
     _LOGGER.debug(
         "[call_hass_service] service: %s.%s, target: %s, service_data: %s",
         domain,
@@ -168,6 +177,8 @@ async def call_hass_service(
     try:
         await hass.services.async_call(domain, service, service_data=service_data, target=target)
     except ServiceNotFound:
+        if raise_on_missing:
+            raise
         _LOGGER.warning("Action Not Found: %s.%s", domain, service)
 
 

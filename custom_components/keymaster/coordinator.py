@@ -77,6 +77,12 @@ from .providers import CodeSlot, create_provider
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
+# Single source of truth for autolock-related notification id suffixes.
+# Both the create-sites (in _timer_triggered and _lock_unlocked door logic)
+# and the dismiss-on-success block in _lock_locked iterate this so a new
+# notification id can't be added on one side and silently ignored on the other.
+AUTOLOCK_NOTIFICATION_SUFFIXES: tuple[str, ...] = ("door_open", "door_closed", "failed")
+
 STORAGE_VERSION = 1
 STORAGE_KEY = f"{DOMAIN}.locks"
 
@@ -799,20 +805,22 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         )
 
         # Dismiss any autolock-related notifications now that the lock has
-        # succeeded — the user no longer needs to be told it's stuck.
+        # succeeded. Wrap each dismissal so a transient failure (e.g. HA
+        # not yet started) can't abort the rest of _lock_locked, which
+        # still needs to cancel the timer and push state.
         notification_slug = slugify(kmlock.lock_name).lower()
-        await dismiss_persistent_notification(
-            hass=self.hass,
-            notification_id=f"{notification_slug}_autolock_door_open",
-        )
-        await dismiss_persistent_notification(
-            hass=self.hass,
-            notification_id=f"{notification_slug}_autolock_door_closed",
-        )
-        await dismiss_persistent_notification(
-            hass=self.hass,
-            notification_id=f"{notification_slug}_autolock_failed",
-        )
+        for suffix in AUTOLOCK_NOTIFICATION_SUFFIXES:
+            try:
+                await dismiss_persistent_notification(
+                    hass=self.hass,
+                    notification_id=f"{notification_slug}_autolock_{suffix}",
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "[lock_locked] %s: failed to dismiss %s notification",
+                    kmlock.lock_name,
+                    suffix,
+                )
 
         if kmlock.autolock_timer:
             await kmlock.autolock_timer.cancel()
@@ -904,11 +912,16 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("[lock_lock] %s: Locking", kmlock.lock_name)
         kmlock.pending_retry_lock = False
         target: MutableMapping[str, Any] = {ATTR_ENTITY_ID: kmlock.lock_entity_id}
+        # raise_on_missing=True so ServiceNotFound (e.g. lock entity removed
+        # or renamed) propagates up to _timer_triggered, which surfaces a
+        # persistent notification. Without this the autolock would silently
+        # retire the timer as if the action had succeeded.
         await call_hass_service(
             hass=self.hass,
             domain=LOCK_DOMAIN,
             service=SERVICE_LOCK,
             target=dict(target),
+            raise_on_missing=True,
         )
 
     def autolock_duration_seconds(self, kmlock: KeymasterLock) -> int:

@@ -144,9 +144,8 @@ class TimerStore:
         try:
             return TimerEntry(end_time=end_time, duration=duration)
         except ValueError as exc:
-            # TimerEntry validates (negative duration, naive end_time after
-            # the as_utc above this would only happen if the input was
-            # something exotic). Don't let it crash recovery.
+            # TimerEntry.__post_init__ enforces non-negative duration and
+            # tz-aware end_time; surface those as recoverable, not crashes.
             _LOGGER.warning(
                 "[TimerStore] %s: invalid persisted entry (%s); treating as absent",
                 timer_id,
