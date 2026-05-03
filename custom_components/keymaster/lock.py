@@ -70,9 +70,8 @@ class KeymasterCodeSlot:
         new instance's lifecycle.
 
         For `accesslimit_day_of_week`, only DOW keys present on both
-        sides are inherited (matching the original coordinator behavior).
-        DOW keys present only on `self` keep their default values; DOW
-        keys present only on `old` are dropped.
+        sides are inherited; keys present only on one side are left
+        alone (kept on `self`, dropped from `old`).
         """
         self.enabled = old.enabled
         self.name = old.name
@@ -132,12 +131,10 @@ class KeymasterLock:
     def inherit_state_from(self, old: KeymasterLock) -> None:
         """Carry user/runtime state from a previous instance into this one.
 
-        Called when a config entry is reloaded: the new lock instance is
-        constructed fresh from config, but state the user owns (autolock
-        config, current lock/door state, code slot contents, in-flight
-        retry) must survive the swap. Owning this on the dataclass keeps
-        the field-by-field copy logic next to the field declarations
-        rather than scattered through the coordinator.
+        Used during config-entry reload: the new instance is constructed
+        fresh from config, but user-owned state (autolock config, current
+        lock/door state, code-slot contents, in-flight retry) must
+        survive the swap.
         """
         self.lock_state = old.lock_state
         self.door_state = old.door_state
@@ -147,9 +144,9 @@ class KeymasterLock:
         self.retry_lock = old.retry_lock
         self.pending_retry_lock = old.pending_retry_lock
         if not self.code_slots or not old.code_slots:
-            # Loud log: silent code-slot loss would drop the user's
-            # PINs/schedules/names without any signal until they noticed
-            # codes stopped working.
+            # Log loudly: silent code-slot loss would drop the user's
+            # PINs/schedules without any signal until they notice codes
+            # have stopped working.
             if not self.code_slots and old.code_slots:
                 _LOGGER.error(
                     "[KeymasterLock] %s: replacement has no code_slots; "

@@ -77,10 +77,9 @@ from .providers import CodeSlot, create_provider
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
-# Single source of truth for autolock-related notification id suffixes.
-# Both the create-sites (in _timer_triggered and _lock_unlocked door logic)
-# and the dismiss-on-success block in _lock_locked iterate this so a new
-# notification id can't be added on one side and silently ignored on the other.
+# Notification id suffixes shared between the create-sites and the
+# dismiss-on-success loop in _lock_locked. Single source of truth so
+# new ids can't be added in one place and silently missed in the other.
 AUTOLOCK_NOTIFICATION_SUFFIXES: tuple[str, ...] = ("door_open", "door_closed", "failed")
 
 STORAGE_VERSION = 1
@@ -804,10 +803,9 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             action_code,
         )
 
-        # Dismiss any autolock-related notifications now that the lock has
-        # succeeded. Wrap each dismissal so a transient failure (e.g. HA
-        # not yet started) can't abort the rest of _lock_locked, which
-        # still needs to cancel the timer and push state.
+        # Dismiss autolock-related notifications. Each dismissal is
+        # wrapped so a transient failure (e.g. HA not yet started) can't
+        # abort the rest of this handler.
         notification_slug = slugify(kmlock.lock_name).lower()
         for suffix in AUTOLOCK_NOTIFICATION_SUFFIXES:
             try:
@@ -912,10 +910,9 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         _LOGGER.debug("[lock_lock] %s: Locking", kmlock.lock_name)
         kmlock.pending_retry_lock = False
         target: MutableMapping[str, Any] = {ATTR_ENTITY_ID: kmlock.lock_entity_id}
-        # raise_on_missing=True so ServiceNotFound (e.g. lock entity removed
-        # or renamed) propagates up to _timer_triggered, which surfaces a
-        # persistent notification. Without this the autolock would silently
-        # retire the timer as if the action had succeeded.
+        # raise_on_missing so ServiceNotFound (e.g. lock entity removed or
+        # renamed) propagates up to _timer_triggered's notification path,
+        # rather than being swallowed and silently retiring the autolock.
         await call_hass_service(
             hass=self.hass,
             domain=LOCK_DOMAIN,
@@ -945,11 +942,10 @@ class KeymasterCoordinator(DataUpdateCoordinator):
     async def _setup_timer(self, kmlock: KeymasterLock) -> None:
         """Construct the AutolockTimer for this kmlock if absent, then recover.
 
-        The AutolockTimer captures `kmlock` only via a get_kmlock closure
-        that resolves through `self.kmlocks[id]` at fire time. A config-
-        entry reload that replaces the kmlock instance is therefore
-        transparently picked up — the action runs against the live
-        replacement, never the orphaned old instance.
+        The AutolockTimer captures kmlock only via a get_kmlock closure
+        that resolves through `self.kmlocks[id]` at fire time, so a
+        config-entry reload that replaces the kmlock instance is picked
+        up transparently — the action runs against the live replacement.
         """
         if not isinstance(kmlock, KeymasterLock):
             return
@@ -985,10 +981,9 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         try:
             await self._lock_lock(kmlock=kmlock)
         except Exception:
-            # AutolockTimer preserves the store entry on action failure
-            # (replays on next restart), but the user has no UI signal
-            # that the door didn't lock unless we surface it. Mirror the
-            # door-open notification pattern so the user can act now.
+            # AutolockTimer preserves the store entry for replay on next
+            # restart, but the user has no UI signal otherwise. Surface
+            # a notification so they can act before that.
             _LOGGER.exception("[timer_triggered] %s: autolock action failed", kmlock.lock_name)
             await send_persistent_notification(
                 hass=self.hass,
@@ -1148,10 +1143,9 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         # so the field-by-field copy lives next to the field declarations.
         new.inherit_state_from(old)
 
-        # Transfer the existing AutolockTimer instance to the new kmlock.
-        # The timer's get_kmlock closure resolves via self.kmlocks[id] —
-        # which we're about to update below — so the action will fire
-        # against the new kmlock. No detach/setup dance required.
+        # Transfer the timer to new. The get_kmlock closure resolves
+        # through self.kmlocks[id] (updated below), so the action fires
+        # against the live kmlock without needing to rebind the timer.
         new.autolock_timer = old.autolock_timer
         old.autolock_timer = None
 

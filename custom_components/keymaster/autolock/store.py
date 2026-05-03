@@ -38,16 +38,16 @@ class _TimerStoreEntryDict(TypedDict):
 class TimerEntry:
     """A typed, validated timer entry.
 
-    Validates on construction so direct callers (tests, AutolockTimer.start)
-    get the same guarantees as parsed-from-disk entries: end_time must be
-    timezone-aware, duration must be non-negative.
+    `end_time` must be timezone-aware and `duration` non-negative;
+    enforced in `__post_init__` so all construction paths (parsed from
+    disk, built by callers) carry the same guarantees.
     """
 
     end_time: dt
     duration: int
 
     def __post_init__(self) -> None:
-        """Reject naive datetimes and negative durations at construction."""
+        """Validate the entry on construction (see class docstring)."""
         if self.end_time.tzinfo is None:
             raise ValueError("TimerEntry.end_time must be timezone-aware")
         if self.duration < 0:

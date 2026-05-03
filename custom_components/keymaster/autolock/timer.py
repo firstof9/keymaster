@@ -2,9 +2,9 @@
 
 The timer is owned by the coordinator and lives across config-entry
 reloads. It does NOT capture a kmlock reference; instead it takes a
-`get_kmlock` closure that resolves the live kmlock at fire time. This
-eliminates the "action mutates orphaned kmlock" class of races that
-plagued the previous design.
+`get_kmlock` closure that resolves the live kmlock at fire time, so a
+reload that replaces the kmlock instance does not orphan in-flight
+actions.
 
 State machine (recover() must be the first transition, from FRESH only):
 
@@ -103,10 +103,8 @@ class AutolockTimer:
             self._state = TimerState.DONE
             return
         if entry.end_time <= dt_util.utcnow():
-            # Set up state as if we'd just started, then fire. This way
-            # _fire()'s success and failure paths transition state the
-            # same way as the in-process firing case — leaving the timer
-            # in a usable post-recover state regardless of action outcome.
+            # Set state to ACTIVE before firing so _fire's success and
+            # failure paths leave a usable post-recover state.
             self._entry = entry
             self._state = TimerState.ACTIVE
             await self._fire(now=dt_util.utcnow(), entry=entry)
@@ -158,10 +156,10 @@ class AutolockTimer:
     def is_running(self) -> bool:
         """True if a callback is currently scheduled to fire.
 
-        Tied to the ScheduledFire (not just _state) so an action-failure
-        path that left the entry persisted but no callback armed reports
-        False — callers like switch.async_turn_on can then issue a fresh
-        start() to re-arm.
+        Tied to the ScheduledFire's done flag (not just `_state`) so an
+        action that ran but left the entry persisted (failure replay
+        path) reports False — callers can then issue a fresh `start()`
+        to re-arm without conflict.
         """
         return (
             self._state == TimerState.ACTIVE
@@ -204,20 +202,13 @@ class AutolockTimer:
     async def _fire(self, now: dt, entry: TimerEntry) -> None:
         """Fire the action against the live kmlock; clean up on success.
 
-        Resolves the kmlock at fire time, so a config-entry reload that
-        replaced the kmlock instance is transparent — the action sees
-        the current live one via `get_kmlock()`.
-
-        On `get_kmlock()` returning None: treat as terminal. The kmlock
-        was deleted; clear in-memory state and remove the persisted
-        entry so it doesn't replay forever on subsequent restarts.
-
-        On action failure: keep the entry in the store so it replays on
-        the next HA restart. The ScheduledFire wrapper has already set
-        its `done=True` flag (we're running inside its callback), so
-        `is_running` reports False even though state stays ACTIVE — a
-        caller can issue a fresh `start()` to re-arm without conflict.
-        We prefer "fire again later" over "silently lose the autolock".
+        Three outcomes:
+            - kmlock missing: terminal. Clear state + remove entry so it
+              can't replay forever on subsequent restarts.
+            - action raises: keep the entry persisted so recovery on the
+              next restart retries it. State stays ACTIVE; is_running
+              reports False because the ScheduledFire has finished.
+            - action succeeds: entry retired, state DONE.
         """
         kmlock = self._get_kmlock()
         if kmlock is None:
@@ -236,14 +227,9 @@ class AutolockTimer:
                 "[AutolockTimer] %s: action raised; entry preserved for restart retry",
                 self._timer_id,
             )
-            # Re-persist so the entry survives — recover() at next startup
-            # will replay. State stays ACTIVE so the store entry is still
-            # owned by us; `is_running` will be False because the
-            # ScheduledFire is now `done`.
+            # Re-persist for replay on next recover().
             await self._store.write(self._timer_id, entry)
             return
-        # Success — entry retired, timer is done. cancel() can be called
-        # afterward as a noop.
         self._entry = None
         await self._store.remove(self._timer_id)
         self._state = TimerState.DONE
