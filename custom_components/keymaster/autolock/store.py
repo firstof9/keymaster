@@ -129,8 +129,10 @@ class TimerStore:
             )
             return None
         if end_time.tzinfo is None:
-            # Legacy/manually-edited entries may be naive; treat as UTC
-            end_time = dt_util.as_utc(end_time)
+            # Legacy/manually-edited entries may be naive. Interpret them
+            # as already-UTC (we always write UTC) — `dt_util.as_utc`
+            # would assume local/default tz, which is wrong for our data.
+            end_time = end_time.replace(tzinfo=dt_util.UTC)
         try:
             duration = int(raw.get("duration", 0))
         except (TypeError, ValueError):
