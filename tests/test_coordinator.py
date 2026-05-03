@@ -1248,10 +1248,13 @@ class TestLockStateEventHandlers:
         mock_kmlock.door_state = STATE_CLOSED
         mock_coordinator._lock_lock = AsyncMock(side_effect=RuntimeError("lock unavailable"))
 
-        with patch(
-            "custom_components.keymaster.coordinator.send_persistent_notification",
-            new=AsyncMock(),
-        ) as mock_send, pytest.raises(RuntimeError, match="lock unavailable"):
+        with (
+            patch(
+                "custom_components.keymaster.coordinator.send_persistent_notification",
+                new=AsyncMock(),
+            ) as mock_send,
+            pytest.raises(RuntimeError, match="lock unavailable"),
+        ):
             await mock_coordinator._timer_triggered(mock_kmlock, dt.now())
 
         mock_send.assert_called_once()
