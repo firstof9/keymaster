@@ -10,6 +10,7 @@ The on-disk shape is `{timer_id: {"end_time": iso, "duration": int}}`.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime as dt
 import logging
@@ -105,8 +106,20 @@ class TimerStore:
                 await self._store.async_save(data)
 
     @staticmethod
-    def _parse(timer_id: str, raw: _TimerStoreEntryDict) -> TimerEntry | None:
-        """Parse a raw store entry into a TimerEntry, or None if invalid."""
+    def _parse(timer_id: str, raw: object) -> TimerEntry | None:
+        """Parse a raw store entry into a TimerEntry, or None if invalid.
+
+        `raw` is `object` (not the TypedDict) because legacy or manually-
+        edited stores may contain anything; we defensively type-check
+        rather than trust the on-disk shape.
+        """
+        if not isinstance(raw, Mapping):
+            _LOGGER.warning(
+                "[TimerStore] %s: persisted entry is not a mapping (%s); treating as absent",
+                timer_id,
+                type(raw).__name__,
+            )
+            return None
         try:
             end_time = dt.fromisoformat(raw["end_time"])
         except (KeyError, TypeError, ValueError):
@@ -126,4 +139,15 @@ class TimerStore:
                 timer_id,
             )
             return None
-        return TimerEntry(end_time=end_time, duration=duration)
+        try:
+            return TimerEntry(end_time=end_time, duration=duration)
+        except ValueError as exc:
+            # TimerEntry validates (negative duration, naive end_time after
+            # the as_utc above this would only happen if the input was
+            # something exotic). Don't let it crash recovery.
+            _LOGGER.warning(
+                "[TimerStore] %s: invalid persisted entry (%s); treating as absent",
+                timer_id,
+                exc,
+            )
+            return None

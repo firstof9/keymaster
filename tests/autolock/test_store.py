@@ -71,6 +71,31 @@ async def test_multiple_timer_ids_isolated(store, entry):
     assert await store.read("b") == other
 
 
+async def test_non_mapping_entry_is_removed_on_read(store):
+    """Persisted entry that's not a dict (e.g. legacy list/string) is pruned.
+
+    Regression: `_parse` previously called `.get()` on `raw` unconditionally,
+    so a non-mapping value would AttributeError and break recovery.
+    """
+    await store._store.async_save({"weird": ["unexpected", "list"]})
+    assert await store.read("weird") is None
+    raw = await store._store.async_load() or {}
+    assert "weird" not in raw
+
+
+async def test_negative_duration_entry_is_removed_on_read(store):
+    """A persisted entry with a negative duration is pruned.
+
+    Regression: TimerEntry's __post_init__ raises ValueError for negative
+    duration, but `_parse` didn't catch it — would crash recovery.
+    """
+    future = (dt_util.utcnow() + timedelta(minutes=5)).isoformat()
+    await store._store.async_save({"bad": {"end_time": future, "duration": -1}})
+    assert await store.read("bad") is None
+    raw = await store._store.async_load() or {}
+    assert "bad" not in raw
+
+
 async def test_corrupt_entry_is_removed_on_read(hass, store, entry):
     """Corrupt entries are pruned so callers see them as absent."""
     # Plant a malformed entry by going around the public API
