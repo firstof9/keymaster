@@ -147,8 +147,18 @@ class AutolockTimer:
 
     @property
     def is_running(self) -> bool:
-        """True if a callback is scheduled to fire."""
-        return self._state == TimerState.ACTIVE
+        """True if a callback is currently scheduled to fire.
+
+        Tied to the ScheduledFire (not just _state) so an action-failure
+        path that left the entry persisted but no callback armed reports
+        False — callers like switch.async_turn_on can then issue a fresh
+        start() to re-arm.
+        """
+        return (
+            self._state == TimerState.ACTIVE
+            and self._scheduled is not None
+            and not self._scheduled.done
+        )
 
     @property
     def end_time(self) -> dt | None:
@@ -185,20 +195,30 @@ class AutolockTimer:
     async def _fire(self, now: dt, entry: TimerEntry) -> None:
         """Fire the action against the live kmlock; clean up on success.
 
-        Resolves the kmlock at fire time so a config-entry reload that
-        replaced the kmlock instance is invisible to us — the action
-        sees the current live one.
+        Resolves the kmlock at fire time, so a config-entry reload that
+        replaced the kmlock instance is transparent — the action sees
+        the current live one via `get_kmlock()`.
+
+        On `get_kmlock()` returning None: treat as terminal. The kmlock
+        was deleted; clear in-memory state and remove the persisted
+        entry so it doesn't replay forever on subsequent restarts.
 
         On action failure: keep the entry in the store so it replays on
-        the next HA restart. The user's lock didn't actually lock; we
-        prefer "fire again later" over "silently lose the autolock".
+        the next HA restart. The ScheduledFire wrapper has already set
+        its `done=True` flag (we're running inside its callback), so
+        `is_running` reports False even though state stays ACTIVE — a
+        caller can issue a fresh `start()` to re-arm without conflict.
+        We prefer "fire again later" over "silently lose the autolock".
         """
         kmlock = self._get_kmlock()
         if kmlock is None:
             _LOGGER.warning(
-                "[AutolockTimer] %s: fire skipped — kmlock no longer present",
+                "[AutolockTimer] %s: kmlock no longer present; clearing timer",
                 self._timer_id,
             )
+            self._entry = None
+            await self._store.remove(self._timer_id)
+            self._state = TimerState.DONE
             return
         try:
             await self._action(kmlock, now)
@@ -208,14 +228,14 @@ class AutolockTimer:
                 self._timer_id,
             )
             # Re-persist so the entry survives — recover() at next startup
-            # will replay. We're still ACTIVE conceptually (the autolock
-            # hasn't completed) so leave the state as-is.
+            # will replay. State stays ACTIVE so the store entry is still
+            # owned by us; `is_running` will be False because the
+            # ScheduledFire is now `done`.
             await self._store.write(self._timer_id, entry)
             return
         # Success — entry retired, timer is done. cancel() can be called
         # afterward as a noop.
         self._entry = None
         await self._store.remove(self._timer_id)
-        self._scheduled = None
         self._state = TimerState.DONE
         _LOGGER.debug("[AutolockTimer] %s: fired and cleared", self._timer_id)

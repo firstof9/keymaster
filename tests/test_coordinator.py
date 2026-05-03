@@ -1067,7 +1067,7 @@ class TestLockStateEventHandlers:
         mock_coordinator._throttle.is_allowed = Mock(return_value=True)
         # Coordinator now computes the duration before calling start();
         # bypass the sun.is_up + autolock_min_* lookup here.
-        mock_coordinator._autolock_duration_seconds = Mock(return_value=300)
+        mock_coordinator.autolock_duration_seconds = Mock(return_value=300)
 
         await mock_coordinator._lock_unlocked(mock_kmlock, source="manual")
 
@@ -1246,7 +1246,7 @@ class TestLockStateEventHandlers:
         mock_kmlock.lock_notifications = False
         mock_kmlock.code_slots = {}
         mock_kmlock.pending_retry_lock = False
-        mock_coordinator._autolock_duration_seconds = Mock(return_value=300)
+        mock_coordinator.autolock_duration_seconds = Mock(return_value=300)
 
         # Use a real Throttle with a long cooldown to force the race
         mock_coordinator._throttle = Throttle()

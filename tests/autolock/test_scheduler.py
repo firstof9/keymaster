@@ -124,6 +124,30 @@ async def test_cancel_swallows_action_exception(hass, caplog):
     await scheduled.cancel()
 
 
+async def test_cancel_swallows_in_flight_cancelled_error(hass):
+    """cancel() must not re-raise CancelledError from the in-flight task.
+
+    asyncio.CancelledError inherits from BaseException, so a bare
+    `except Exception` would let it escape and cancel the caller —
+    violating cancel()'s contract of never re-raising in-flight failures.
+    """
+
+    async def cancellable_action(now: dt) -> None:
+        await asyncio.sleep(60)  # ensure we're mid-await when cancelled
+
+    with patch(
+        "custom_components.keymaster.autolock.scheduler.async_call_later"
+    ) as mock_call_later:
+        scheduled = ScheduledFire(hass, delay=10, action=cancellable_action)
+        captured_action = mock_call_later.call_args.kwargs["action"]
+
+    fire_task = asyncio.create_task(captured_action(dt_util.utcnow()))
+    await asyncio.sleep(0)  # let it start
+    fire_task.cancel()
+    # cancel() must not re-raise even though fire_task ended with CancelledError
+    await scheduled.cancel()
+
+
 async def test_negative_delay_clamped_to_zero(hass):
     """Clamp negative delay to zero.
 

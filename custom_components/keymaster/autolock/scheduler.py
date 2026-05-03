@@ -74,6 +74,11 @@ class ScheduledFire:
         if task is not None and not task.done():
             try:
                 await task
+            except asyncio.CancelledError:
+                # CancelledError inherits from BaseException; catch explicitly
+                # so it doesn't propagate and cancel our caller (cancel()'s
+                # contract is to not re-raise from in-flight failures).
+                _LOGGER.debug("[ScheduledFire] In-flight callback cancelled")
             except Exception:
                 _LOGGER.exception("[ScheduledFire] In-flight callback raised during cancel")
 

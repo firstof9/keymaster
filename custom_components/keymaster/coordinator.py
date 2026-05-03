@@ -672,7 +672,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             code_slot_num = 0
 
         if kmlock.autolock_enabled and kmlock.autolock_timer:
-            await kmlock.autolock_timer.start(duration=self._autolock_duration_seconds(kmlock))
+            await kmlock.autolock_timer.start(duration=self.autolock_duration_seconds(kmlock))
             self.async_set_updated_data(dict(self.kmlocks))
 
         if kmlock.lock_notifications:
@@ -906,7 +906,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             target=dict(target),
         )
 
-    def _autolock_duration_seconds(self, kmlock: KeymasterLock) -> int:
+    def autolock_duration_seconds(self, kmlock: KeymasterLock) -> int:
         """Compute the autolock duration for a kmlock based on time of day.
 
         Sun.is_up determines whether to use the day or night minute setting,
@@ -928,9 +928,10 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         """Construct the AutolockTimer for this kmlock if absent, then recover.
 
         The AutolockTimer captures `kmlock` only via a get_kmlock closure
-        that resolves through `self.kmlocks[id]` — so a config-entry reload
-        that replaces the kmlock instance is invisible to the timer; the
-        action will fire against the live kmlock at fire time.
+        that resolves through `self.kmlocks[id]` at fire time. A config-
+        entry reload that replaces the kmlock instance is therefore
+        transparently picked up — the action runs against the live
+        replacement, never the orphaned old instance.
         """
         if not isinstance(kmlock, KeymasterLock):
             return

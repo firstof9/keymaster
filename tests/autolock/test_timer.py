@@ -256,6 +256,10 @@ async def test_action_failure_preserves_entry_for_replay(hass, store, kmlock):
     If the action raises, the entry stays so the timer replays on the
     next HA restart. The lock didn't actually lock; we prefer 'fire
     again later' over 'silently lose the autolock'.
+
+    is_running must report False after the failed fire so callers can
+    issue a fresh start() to re-arm — the ScheduledFire is `done` even
+    though the timer state is still ACTIVE for entry-presence reasons.
     """
 
     async def failing_action(km: KeymasterLock, _now: dt) -> None:
@@ -274,6 +278,7 @@ async def test_action_failure_preserves_entry_for_replay(hass, store, kmlock):
 
     persisted = await store.read("t1")
     assert persisted is not None, "entry must be preserved on action failure"
+    assert not timer.is_running, "is_running must be False after fire completes"
 
 
 async def test_recovery_action_failure_preserves_entry(hass, store, kmlock):
@@ -295,11 +300,13 @@ async def test_recovery_action_failure_preserves_entry(hass, store, kmlock):
     assert persisted is not None
 
 
-async def test_action_with_no_kmlock_logs_and_skips(hass, store, caplog):
-    """Skip firing when get_kmlock() returns None.
+async def test_action_with_missing_kmlock_clears_state_terminally(hass, store, caplog):
+    """Treat missing kmlock at fire time as terminal: clean up, don't loop.
 
-    If the kmlock was deleted before fire time, skip the action without
-    raising.
+    If the kmlock was deleted before fire time, skip the action AND
+    clear the persisted entry + transition to DONE — otherwise the
+    timer would stay ACTIVE with an expired end_time, replaying
+    forever on subsequent restarts.
     """
     action = AsyncMock()
     timer, _, slot = make_timer(hass, store, kmlock=None, action=action)
@@ -316,7 +323,11 @@ async def test_action_with_no_kmlock_logs_and_skips(hass, store, caplog):
 
     slot["kmlock"] = None  # kmlock vanished before fire
     await captured_callback(dt_util.utcnow())
+
     assert action.await_count == 0
+    assert timer.state == TimerState.DONE
+    assert not timer.is_running
+    assert await store.read("t1") is None, "entry must be cleared so it can't replay"
 
 
 async def test_cross_timer_writes_dont_clobber(hass, store, kmlock):
