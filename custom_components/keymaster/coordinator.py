@@ -798,7 +798,8 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             action_code,
         )
 
-        # Dismiss retry lock notifications now that the lock has succeeded
+        # Dismiss any autolock-related notifications now that the lock has
+        # succeeded — the user no longer needs to be told it's stuck.
         notification_slug = slugify(kmlock.lock_name).lower()
         await dismiss_persistent_notification(
             hass=self.hass,
@@ -807,6 +808,10 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         await dismiss_persistent_notification(
             hass=self.hass,
             notification_id=f"{notification_slug}_autolock_door_closed",
+        )
+        await dismiss_persistent_notification(
+            hass=self.hass,
+            notification_id=f"{notification_slug}_autolock_failed",
         )
 
         if kmlock.autolock_timer:

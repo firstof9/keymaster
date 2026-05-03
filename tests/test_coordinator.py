@@ -1009,7 +1009,8 @@ class TestLockStateEventHandlers:
             await mock_coordinator._lock_locked(mock_kmlock, source="manual")
 
             assert mock_kmlock.pending_retry_lock is False
-            assert mock_dismiss.call_count == 2
+            # door_open + door_closed + autolock_failed dismissed on lock success
+            assert mock_dismiss.call_count == 3
 
     async def test_lock_locked_throttled(self, mock_coordinator, mock_kmlock):
         """Test _lock_locked respects throttling."""
@@ -1186,7 +1187,7 @@ class TestLockStateEventHandlers:
             assert "closed" in mock_send.call_args.kwargs["message"].lower()
 
     async def test_lock_locked_dismisses_retry_notifications(self, mock_coordinator, mock_kmlock):
-        """Test _lock_locked dismisses both retry lock persistent notifications."""
+        """Test _lock_locked dismisses all autolock-related persistent notifications."""
         mock_coordinator._throttle = Mock()
         mock_coordinator._throttle.is_allowed = Mock(return_value=True)
 
@@ -1196,12 +1197,13 @@ class TestLockStateEventHandlers:
         ) as mock_dismiss:
             await mock_coordinator._lock_locked(mock_kmlock, source="manual")
 
-            assert mock_dismiss.call_count == 2
             notification_ids = [
                 call.kwargs["notification_id"] for call in mock_dismiss.call_args_list
             ]
+            # door_open + door_closed + autolock_failed all dismissed on success
             assert any("_autolock_door_open" in nid for nid in notification_ids)
             assert any("_autolock_door_closed" in nid for nid in notification_ids)
+            assert any("_autolock_failed" in nid for nid in notification_ids)
 
     async def test_timer_triggered_open_door_sends_notification(
         self, mock_coordinator, mock_kmlock
