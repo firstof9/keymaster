@@ -285,7 +285,10 @@ async def test_recovery_action_failure_preserves_entry(hass, store, kmlock):
     """Recovery-fire action failure also preserves the entry.
 
     Same contract as the in-process firing path: action failure leaves
-    the entry on disk so the next restart retries.
+    the entry on disk so the next restart retries. The timer must also
+    leave FRESH (otherwise a subsequent start() would raise) — verify
+    state transitions to ACTIVE with no scheduled callback, and that
+    start() can re-arm cleanly.
     """
     expired = dt_util.utcnow() - timedelta(minutes=5)
     await store.write("t1", TimerEntry(end_time=expired, duration=300))
@@ -295,6 +298,12 @@ async def test_recovery_action_failure_preserves_entry(hass, store, kmlock):
 
     timer, _, _ = make_timer(hass, store, kmlock=kmlock, action=AsyncMock(wraps=failing_action))
     await timer.recover()
+
+    # Post-recover state: ACTIVE (entry preserved) but is_running=False
+    # (no scheduled callback). A fresh start() must be possible.
+    assert timer.state == TimerState.ACTIVE
+    assert not timer.is_running
+    await timer.start(duration=300)  # must not raise
 
     persisted = await store.read("t1")
     assert persisted is not None

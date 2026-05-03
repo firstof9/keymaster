@@ -98,8 +98,12 @@ class AutolockTimer:
             self._state = TimerState.DONE
             return
         if entry.end_time <= dt_util.utcnow():
-            # Recovery fire — action runs synchronously so the caller
-            # (typically coordinator startup) can observe completion.
+            # Set up state as if we'd just started, then fire. This way
+            # _fire()'s success and failure paths transition state the
+            # same way as the in-process firing case — leaving the timer
+            # in a usable post-recover state regardless of action outcome.
+            self._entry = entry
+            self._state = TimerState.ACTIVE
             await self._fire(now=dt_util.utcnow(), entry=entry)
             return
         self._entry = entry
