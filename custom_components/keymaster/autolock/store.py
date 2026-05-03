@@ -15,11 +15,10 @@ from datetime import datetime as dt
 import logging
 from typing import TypedDict
 
+from custom_components.keymaster.const import DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
-
-from ..const import DOMAIN
 
 TIMER_STORAGE_VERSION = 1
 TIMER_STORAGE_KEY = f"{DOMAIN}.timers"

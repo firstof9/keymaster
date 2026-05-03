@@ -27,12 +27,13 @@ from homeassistant.const import (
     STATE_OPEN,
 )
 from homeassistant.core import CoreState, Event, EventStateChangedData, HomeAssistant
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er, sun
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import slugify
 
+from .autolock import AutolockTimer, TimerStore
 from .const import (
     ATTR_ACTION_CODE,
     ATTR_ACTION_TEXT,
@@ -44,6 +45,8 @@ from .const import (
     BACKOFF_INITIAL_SECONDS,
     BACKOFF_MAX_SECONDS,
     DAY_NAMES,
+    DEFAULT_AUTOLOCK_MIN_DAY,
+    DEFAULT_AUTOLOCK_MIN_NIGHT,
     DOMAIN,
     EVENT_KEYMASTER_CODE_SLOT_RESET,
     EVENT_KEYMASTER_LOCK_STATE_CHANGED,
@@ -56,11 +59,7 @@ from .const import (
 )
 from .exceptions import ProviderNotConfiguredError
 from .helpers import (
-    TIMER_STORAGE_KEY,
-    TIMER_STORAGE_VERSION,
-    KeymasterTimer,
     Throttle,
-    TimerStoreEntry,
     call_hass_service,
     delete_code_slot_entities,
     dismiss_persistent_notification,
@@ -119,9 +118,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             config_entry=None,
         )
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        self._timer_store: Store[dict[str, TimerStoreEntry]] = Store(
-            hass, TIMER_STORAGE_VERSION, TIMER_STORAGE_KEY
-        )
+        self._timer_store = TimerStore(hass)
 
     async def initial_setup(self) -> None:
         """Trigger the initial async_setup."""
@@ -675,7 +672,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             code_slot_num = 0
 
         if kmlock.autolock_enabled and kmlock.autolock_timer:
-            await kmlock.autolock_timer.start()
+            await kmlock.autolock_timer.start(duration=self._autolock_duration_seconds(kmlock))
             self.async_set_updated_data(dict(self.kmlocks))
 
         if kmlock.lock_notifications:
@@ -909,6 +906,18 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             target=dict(target),
         )
 
+    def _autolock_duration_seconds(self, kmlock: KeymasterLock) -> int:
+        """Compute the autolock duration for a kmlock based on time of day.
+
+        Sun.is_up determines whether to use the day or night minute setting,
+        defaulting if the kmlock has no value configured.
+        """
+        if sun.is_up(self.hass):
+            minutes = kmlock.autolock_min_day or DEFAULT_AUTOLOCK_MIN_DAY
+        else:
+            minutes = kmlock.autolock_min_night or DEFAULT_AUTOLOCK_MIN_NIGHT
+        return int(minutes) * 60
+
     async def _setup_timers(self) -> None:
         for kmlock in self.kmlocks.values():
             if not isinstance(kmlock, KeymasterLock):
@@ -916,21 +925,32 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             await self._setup_timer(kmlock)
 
     async def _setup_timer(self, kmlock: KeymasterLock) -> None:
+        """Construct the AutolockTimer for this kmlock if absent, then recover.
+
+        The AutolockTimer captures `kmlock` only via a get_kmlock closure
+        that resolves through `self.kmlocks[id]` — so a config-entry reload
+        that replaces the kmlock instance is invisible to the timer; the
+        action will fire against the live kmlock at fire time.
+        """
         if not isinstance(kmlock, KeymasterLock):
             return
+        if kmlock.autolock_timer is not None:
+            return
+        entry_id = kmlock.keymaster_config_entry_id
 
-        if not hasattr(kmlock, "autolock_timer") or not kmlock.autolock_timer:
-            kmlock.autolock_timer = KeymasterTimer()
-        if not kmlock.autolock_timer.is_setup:
-            await kmlock.autolock_timer.setup(
-                hass=self.hass,
-                kmlock=kmlock,
-                call_action=functools.partial(self._timer_triggered, kmlock),
-                timer_id=f"{kmlock.keymaster_config_entry_id}_autolock",
-                store=self._timer_store,
-            )
-            if kmlock.autolock_timer.is_running:
-                self.async_set_updated_data(dict(self.kmlocks))
+        def get_kmlock(eid: str = entry_id) -> KeymasterLock | None:
+            return self.kmlocks.get(eid)
+
+        kmlock.autolock_timer = AutolockTimer(
+            hass=self.hass,
+            store=self._timer_store,
+            timer_id=f"{entry_id}_autolock",
+            get_kmlock=get_kmlock,
+            action=self._timer_triggered,
+        )
+        await kmlock.autolock_timer.recover()
+        if kmlock.autolock_timer.is_running:
+            self.async_set_updated_data(dict(self.kmlocks))
 
     async def _timer_triggered(self, kmlock: KeymasterLock, _: dt) -> None:
         _LOGGER.debug("[timer_triggered] %s", kmlock.lock_name)
@@ -1076,7 +1096,6 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         ):
             return False
         await KeymasterCoordinator._unsubscribe_listeners(old)
-        # _LOGGER.debug("[update_lock] %s: old: %s", new.lock_name, old)
         del_code_slots: list[int] = [
             old.starting_code_slot + i for i in range(old.number_of_code_slots)
         ]
@@ -1087,40 +1106,19 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             if code_slot_num in del_code_slots:
                 del_code_slots.remove(code_slot_num)
 
-        new.lock_state = old.lock_state
-        new.door_state = old.door_state
-        new.autolock_enabled = old.autolock_enabled
-        new.autolock_min_day = old.autolock_min_day
-        new.autolock_min_night = old.autolock_min_night
-        new.retry_lock = old.retry_lock
-        for code_slot_num, new_kmslot in new.code_slots.items():
-            if code_slot_num not in old.code_slots:
-                continue
-            old_kmslot: KeymasterCodeSlot = old.code_slots[code_slot_num]
-            new_kmslot.enabled = old_kmslot.enabled
-            new_kmslot.name = old_kmslot.name
-            new_kmslot.pin = old_kmslot.pin
-            new_kmslot.override_parent = old_kmslot.override_parent
-            new_kmslot.notifications = old_kmslot.notifications
-            new_kmslot.accesslimit_count_enabled = old_kmslot.accesslimit_count_enabled
-            new_kmslot.accesslimit_count = old_kmslot.accesslimit_count
-            new_kmslot.accesslimit_date_range_enabled = old_kmslot.accesslimit_date_range_enabled
-            new_kmslot.accesslimit_date_range_start = old_kmslot.accesslimit_date_range_start
-            new_kmslot.accesslimit_date_range_end = old_kmslot.accesslimit_date_range_end
-            new_kmslot.accesslimit_day_of_week_enabled = old_kmslot.accesslimit_day_of_week_enabled
-            if not new_kmslot.accesslimit_day_of_week:
-                continue
-            for dow_num, new_dow in new_kmslot.accesslimit_day_of_week.items():
-                if not old_kmslot.accesslimit_day_of_week:
-                    continue
-                old_dow: KeymasterCodeSlotDayOfWeek = old_kmslot.accesslimit_day_of_week[dow_num]
-                new_dow.dow_enabled = old_dow.dow_enabled
-                new_dow.limit_by_time = old_dow.limit_by_time
-                new_dow.include_exclude = old_dow.include_exclude
-                new_dow.time_start = old_dow.time_start
-                new_dow.time_end = old_dow.time_end
+        # Carry user/runtime state from old → new (lock state, autolock
+        # config, retry state, code slots + DOW). Owned by KeymasterLock
+        # so the field-by-field copy lives next to the field declarations.
+        new.inherit_state_from(old)
+
+        # Transfer the existing AutolockTimer instance to the new kmlock.
+        # The timer's get_kmlock closure resolves via self.kmlocks[id] —
+        # which we're about to update below — so the action will fire
+        # against the new kmlock. No detach/setup dance required.
+        new.autolock_timer = old.autolock_timer
+        old.autolock_timer = None
+
         self.kmlocks[new.keymaster_config_entry_id] = new
-        # _LOGGER.debug("[update_lock] %s: new: %s", new.lock_name, new)
         _LOGGER.debug("[update_lock] Code slot entities to delete: %s", del_code_slots)
         for code_slot_num in del_code_slots:
             await delete_code_slot_entities(
@@ -1131,7 +1129,11 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         await self._rebuild_lock_relationships()
         await self._update_door_and_lock_state()
         await self._update_listeners(self.kmlocks[new.keymaster_config_entry_id])
-        await self._setup_timer(self.kmlocks[new.keymaster_config_entry_id])
+        # Construct the timer if old didn't have one (defensive — should be
+        # rare since add_lock sets one up, but a half-initialized old
+        # instance might not).
+        if new.autolock_timer is None:
+            await self._setup_timer(new)
         await self.async_refresh()
         return True
 

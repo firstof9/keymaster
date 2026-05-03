@@ -21,11 +21,13 @@ from homeassistant.util import dt as dt_util
 
 @pytest.fixture
 def store(hass) -> TimerStore:
+    """Provide a TimerStore wired to a real HA Store."""
     return TimerStore(hass)
 
 
 @pytest.fixture
 def kmlock() -> KeymasterLock:
+    """Provide a fresh KeymasterLock."""
     return KeymasterLock(
         lock_name="test_lock",
         lock_entity_id="lock.test",
@@ -66,6 +68,7 @@ def make_timer(
 
 
 async def test_constructed_in_fresh_state(hass, store, kmlock):
+    """A new instance is FRESH and not running."""
     timer, _, _ = make_timer(hass, store, kmlock=kmlock)
     assert timer.state == TimerState.FRESH
     assert not timer.is_running
@@ -73,8 +76,10 @@ async def test_constructed_in_fresh_state(hass, store, kmlock):
 
 
 async def test_start_before_recover_raises(hass, store, kmlock):
-    """start() requires recover() first — the FRESH→ACTIVE transition is
-    forbidden so the timer always sees any persisted prior state.
+    """Forbid start() before recover().
+
+    The FRESH→ACTIVE transition requires recover() so the timer always
+    sees any persisted prior state.
     """
     timer, _, _ = make_timer(hass, store, kmlock=kmlock)
     with pytest.raises(RuntimeError, match="recover"):
@@ -82,6 +87,7 @@ async def test_start_before_recover_raises(hass, store, kmlock):
 
 
 async def test_recover_with_no_entry_goes_to_done(hass, store, kmlock):
+    """Recovering with an empty store leaves the timer in DONE."""
     timer, action, _ = make_timer(hass, store, kmlock=kmlock)
     await timer.recover()
     assert timer.state == TimerState.DONE
@@ -89,6 +95,7 @@ async def test_recover_with_no_entry_goes_to_done(hass, store, kmlock):
 
 
 async def test_recover_resumes_active_entry(hass, store, kmlock):
+    """Recovering an active entry transitions to ACTIVE and schedules."""
     end_time = dt_util.utcnow() + timedelta(minutes=5)
     await store.write("t1", TimerEntry(end_time=end_time, duration=300))
     timer, action, _ = make_timer(hass, store, kmlock=kmlock)
@@ -117,6 +124,7 @@ async def test_recover_fires_expired_entry(hass, store, kmlock):
 
 
 async def test_start_writes_entry_and_schedules(hass, store, kmlock):
+    """start() persists the entry and schedules the callback."""
     timer, _, _ = make_timer(hass, store, kmlock=kmlock)
     await timer.recover()
     await timer.start(duration=300)
@@ -140,6 +148,7 @@ async def test_start_replaces_prior_schedule(hass, store, kmlock):
 
 
 async def test_cancel_clears_state_and_store(hass, store, kmlock):
+    """cancel() clears in-memory state AND removes the store entry."""
     timer, action, _ = make_timer(hass, store, kmlock=kmlock)
     await timer.recover()
     await timer.start(duration=300)
@@ -151,6 +160,7 @@ async def test_cancel_clears_state_and_store(hass, store, kmlock):
 
 
 async def test_cancel_idempotent(hass, store, kmlock):
+    """cancel() is safe to call repeatedly."""
     timer, _, _ = make_timer(hass, store, kmlock=kmlock)
     await timer.recover()
     await timer.cancel()
@@ -164,7 +174,9 @@ async def test_cancel_idempotent(hass, store, kmlock):
 
 
 async def test_action_resolves_live_kmlock_at_fire_time(hass, store, kmlock):
-    """A reload between start() and fire-time must NOT cause the action to
+    """Resolve the LIVE kmlock at fire time, not the captured one.
+
+    A reload between start() and fire-time must NOT cause the action to
     run against the OLD kmlock. The indirect get_kmlock closure resolves
     the live one at fire time.
 
@@ -203,7 +215,7 @@ async def test_action_resolves_live_kmlock_at_fire_time(hass, store, kmlock):
 
 
 async def test_cancel_awaits_in_flight_action(hass, store, kmlock):
-    """Cancellation must wait for an action that's already firing.
+    """Cancellation awaits an in-flight action.
 
     Otherwise mutations the action makes after cancel() returns could
     land on stale state (or worse, conflict with the cancel itself).
@@ -239,9 +251,11 @@ async def test_cancel_awaits_in_flight_action(hass, store, kmlock):
 
 
 async def test_action_failure_preserves_entry_for_replay(hass, store, kmlock):
-    """If the action raises, the store entry is preserved so the timer
-    replays on the next HA restart. The lock didn't actually lock; we
-    prefer 'fire again later' over 'silently lose the autolock'.
+    """Preserve store entry on action failure for replay on next restart.
+
+    If the action raises, the entry stays so the timer replays on the
+    next HA restart. The lock didn't actually lock; we prefer 'fire
+    again later' over 'silently lose the autolock'.
     """
 
     async def failing_action(km: KeymasterLock, _now: dt) -> None:
@@ -263,8 +277,10 @@ async def test_action_failure_preserves_entry_for_replay(hass, store, kmlock):
 
 
 async def test_recovery_action_failure_preserves_entry(hass, store, kmlock):
-    """Same contract for the startup-recovery firing path: action failure
-    leaves the entry on disk so the next restart retries.
+    """Recovery-fire action failure also preserves the entry.
+
+    Same contract as the in-process firing path: action failure leaves
+    the entry on disk so the next restart retries.
     """
     expired = dt_util.utcnow() - timedelta(minutes=5)
     await store.write("t1", TimerEntry(end_time=expired, duration=300))
@@ -280,8 +296,10 @@ async def test_recovery_action_failure_preserves_entry(hass, store, kmlock):
 
 
 async def test_action_with_no_kmlock_logs_and_skips(hass, store, caplog):
-    """If get_kmlock() returns None at fire time (the kmlock was deleted),
-    skip the action without raising.
+    """Skip firing when get_kmlock() returns None.
+
+    If the kmlock was deleted before fire time, skip the action without
+    raising.
     """
     action = AsyncMock()
     timer, _, slot = make_timer(hass, store, kmlock=None, action=action)
@@ -302,9 +320,11 @@ async def test_action_with_no_kmlock_logs_and_skips(hass, store, caplog):
 
 
 async def test_cross_timer_writes_dont_clobber(hass, store, kmlock):
-    """Two timers writing to the same TimerStore concurrently must both
-    end up persisted. The shared lock inside TimerStore is what makes
-    this safe — without it, last-writer wins.
+    """Cross-timer concurrent writes don't clobber each other.
+
+    Two timers writing to the same TimerStore concurrently must both end
+    up persisted. The shared lock inside TimerStore is what makes this
+    safe — without it, last-writer wins.
 
     (This complements the dedicated TimerStore test; here we exercise it
     through the AutolockTimer surface to cover the integration.)

@@ -125,7 +125,9 @@ async def test_cancel_swallows_action_exception(hass, caplog):
 
 
 async def test_negative_delay_clamped_to_zero(hass):
-    """A negative delay (e.g. recovery for an already-expired timer)
+    """Clamp negative delay to zero.
+
+    A negative delay (e.g. recovery for an already-expired timer)
     schedules with delay=0 instead of crashing async_call_later.
     """
 

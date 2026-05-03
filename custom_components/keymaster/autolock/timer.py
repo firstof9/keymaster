@@ -33,12 +33,11 @@ from datetime import datetime as dt, timedelta
 from enum import Enum
 import logging
 
+from custom_components.keymaster.autolock.scheduler import ScheduledFire
+from custom_components.keymaster.autolock.store import TimerEntry, TimerStore
+from custom_components.keymaster.lock import KeymasterLock
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-
-from ..lock import KeymasterLock
-from .scheduler import ScheduledFire
-from .store import TimerEntry, TimerStore
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime as dt, timedelta
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -30,6 +30,7 @@ async def test_read_absent_returns_none(store):
 
 
 async def test_write_then_read_roundtrips(store, entry):
+    """write() persists, read() returns the same entry."""
     await store.write("t1", entry)
     loaded = await store.read("t1")
     assert loaded is not None
@@ -38,16 +39,19 @@ async def test_write_then_read_roundtrips(store, entry):
 
 
 async def test_remove_deletes_entry(store, entry):
+    """remove() purges the entry; subsequent read() returns None."""
     await store.write("t1", entry)
     await store.remove("t1")
     assert await store.read("t1") is None
 
 
 async def test_remove_absent_is_noop(store):
+    """remove() on a missing timer_id is a silent noop."""
     await store.remove("never-existed")  # must not raise
 
 
 async def test_write_overwrites_existing(store, entry):
+    """A second write() under the same timer_id replaces the prior value."""
     await store.write("t1", entry)
     later = TimerEntry(end_time=entry.end_time + timedelta(minutes=10), duration=900)
     await store.write("t1", later)
@@ -56,6 +60,7 @@ async def test_write_overwrites_existing(store, entry):
 
 
 async def test_multiple_timer_ids_isolated(store, entry):
+    """Operations on one timer_id don't affect another."""
     other = TimerEntry(end_time=entry.end_time + timedelta(minutes=10), duration=42)
     await store.write("a", entry)
     await store.write("b", other)
@@ -78,7 +83,8 @@ async def test_corrupt_entry_is_removed_on_read(hass, store, entry):
 
 async def test_naive_end_time_treated_as_utc(store):
     """Legacy/manually-edited naive datetimes are coerced rather than rejected."""
-    naive_iso = (dt.utcnow() + timedelta(minutes=5)).isoformat()
+    # Build a deliberately-naive datetime (no tzinfo) to mimic legacy data
+    naive_iso = dt_util.utcnow().replace(tzinfo=None).isoformat()
     await store._store.async_save({"legacy": {"end_time": naive_iso, "duration": 300}})
     loaded = await store.read("legacy")
     assert loaded is not None

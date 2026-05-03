@@ -1065,10 +1065,13 @@ class TestLockStateEventHandlers:
         mock_kmlock.code_slots = {}
         mock_coordinator._throttle = Mock()
         mock_coordinator._throttle.is_allowed = Mock(return_value=True)
+        # Coordinator now computes the duration before calling start();
+        # bypass the sun.is_up + autolock_min_* lookup here.
+        mock_coordinator._autolock_duration_seconds = Mock(return_value=300)
 
         await mock_coordinator._lock_unlocked(mock_kmlock, source="manual")
 
-        mock_kmlock.autolock_timer.start.assert_called_once()
+        mock_kmlock.autolock_timer.start.assert_called_once_with(duration=300)
         mock_coordinator.async_set_updated_data.assert_called_once()
 
     async def test_lock_unlocked_no_autolock_no_data_update(self, mock_coordinator, mock_kmlock):
@@ -1243,6 +1246,7 @@ class TestLockStateEventHandlers:
         mock_kmlock.lock_notifications = False
         mock_kmlock.code_slots = {}
         mock_kmlock.pending_retry_lock = False
+        mock_coordinator._autolock_duration_seconds = Mock(return_value=300)
 
         # Use a real Throttle with a long cooldown to force the race
         mock_coordinator._throttle = Throttle()
@@ -1312,62 +1316,125 @@ class TestSetupTimer:
         coordinator._initial_setup_done_event.set()
         return coordinator
 
-    async def test_setup_timer_passes_timer_id_and_store(self, mock_coordinator):
-        """Test _setup_timer passes timer_id and store to timer.setup()."""
+    async def test_setup_timer_constructs_with_correct_args(self, mock_coordinator):
+        """Wire AutolockTimer with the right args + call recover().
+
+        Asserts timer_id, store, action, and get_kmlock closure resolution.
+        """
         kmlock = KeymasterLock(
             lock_name="test_lock",
             lock_entity_id="lock.test",
             keymaster_config_entry_id="test_entry_123",
         )
+        # Pre-populate self.kmlocks so the get_kmlock closure can resolve
+        mock_coordinator.kmlocks["test_entry_123"] = kmlock
 
         mock_timer = AsyncMock()
-        mock_timer.is_setup = False
         mock_timer.is_running = False
 
         with patch(
-            "custom_components.keymaster.coordinator.KeymasterTimer",
+            "custom_components.keymaster.coordinator.AutolockTimer",
             return_value=mock_timer,
-        ):
+        ) as mock_cls:
             await mock_coordinator._setup_timer(kmlock)
 
-        mock_timer.setup.assert_called_once()
-        call_kwargs = mock_timer.setup.call_args.kwargs
+        mock_cls.assert_called_once()
+        call_kwargs = mock_cls.call_args.kwargs
         assert call_kwargs["timer_id"] == "test_entry_123_autolock"
         assert call_kwargs["store"] is mock_coordinator._timer_store
+        # Bound methods compare equal but aren't `is` (each access binds anew)
+        assert call_kwargs["action"] == mock_coordinator._timer_triggered
+        # get_kmlock closure resolves the live kmlock from the dict
+        assert call_kwargs["get_kmlock"]() is kmlock
+        mock_timer.recover.assert_awaited_once()
+        assert kmlock.autolock_timer is mock_timer
 
     async def test_setup_timer_pushes_data_when_timer_resumed(self, mock_coordinator):
-        """Test _setup_timer pushes data to entities when timer resumes from persistence."""
+        """Push a coordinator update when recovery leaves the timer running.
+
+        If recover() leaves the timer ACTIVE (a persisted entry was found),
+        _setup_timer pushes data so entities reflect the resumed state.
+        """
         kmlock = KeymasterLock(
             lock_name="test_lock",
             lock_entity_id="lock.test",
             keymaster_config_entry_id="test_entry_123",
         )
+        mock_coordinator.kmlocks["test_entry_123"] = kmlock
 
         mock_timer = AsyncMock()
-        mock_timer.is_setup = False
-        mock_timer.is_running = True  # Timer resumed from store
+        mock_timer.is_running = True
 
         with patch(
-            "custom_components.keymaster.coordinator.KeymasterTimer",
+            "custom_components.keymaster.coordinator.AutolockTimer",
             return_value=mock_timer,
         ):
             await mock_coordinator._setup_timer(kmlock)
 
         mock_coordinator.async_set_updated_data.assert_called_once()
 
-    async def test_setup_timer_skips_if_already_setup(self, mock_coordinator):
-        """Test _setup_timer does not call setup() again if timer is already set up."""
+    async def test_setup_timer_skips_if_already_attached(self, mock_coordinator):
+        """Noop if the kmlock already has a timer.
+
+        Covers _update_lock transferring the timer from old → new: the
+        replacement kmlock keeps the existing timer instance. _setup_timer
+        must not construct a new one or call recover() (which would raise
+        from non-FRESH state).
+        """
         kmlock = KeymasterLock(
             lock_name="test_lock",
             lock_entity_id="lock.test",
             keymaster_config_entry_id="test_entry_123",
         )
-        kmlock.autolock_timer = Mock()
-        kmlock.autolock_timer.is_setup = True
+        existing_timer = AsyncMock()
+        kmlock.autolock_timer = existing_timer
 
-        await mock_coordinator._setup_timer(kmlock)
+        with patch("custom_components.keymaster.coordinator.AutolockTimer") as mock_cls:
+            await mock_coordinator._setup_timer(kmlock)
 
-        kmlock.autolock_timer.setup.assert_not_called()
+        mock_cls.assert_not_called()
+        existing_timer.recover.assert_not_called()
+        assert kmlock.autolock_timer is existing_timer
+
+    async def test_setup_timer_get_kmlock_resolves_replacement_after_reload(self, mock_coordinator):
+        """get_kmlock resolves the live kmlock after reload swaps it.
+
+        The closure resolves through self.kmlocks, so a config-entry
+        reload that swaps the kmlock instance is visible to the timer at
+        fire time. This is the structural fix for the "action mutates
+        orphaned kmlock" race that drove the redesign.
+        """
+        old_kmlock = KeymasterLock(
+            lock_name="test_lock",
+            lock_entity_id="lock.test",
+            keymaster_config_entry_id="entry_1",
+        )
+        new_kmlock = KeymasterLock(
+            lock_name="test_lock",
+            lock_entity_id="lock.test",
+            keymaster_config_entry_id="entry_1",
+        )
+        mock_coordinator.kmlocks["entry_1"] = old_kmlock
+
+        captured_get_kmlock = None
+
+        def capture(*args, **kwargs):
+            nonlocal captured_get_kmlock
+            captured_get_kmlock = kwargs["get_kmlock"]
+            timer = AsyncMock()
+            timer.is_running = False
+            return timer
+
+        with patch(
+            "custom_components.keymaster.coordinator.AutolockTimer",
+            side_effect=capture,
+        ):
+            await mock_coordinator._setup_timer(old_kmlock)
+
+        assert captured_get_kmlock() is old_kmlock
+        # Simulate reload: swap the kmlock in the coordinator's dict
+        mock_coordinator.kmlocks["entry_1"] = new_kmlock
+        assert captured_get_kmlock() is new_kmlock
 
 
 # ============================================================================
