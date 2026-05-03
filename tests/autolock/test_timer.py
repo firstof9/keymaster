@@ -1,0 +1,318 @@
+"""Tests for AutolockTimer orchestration + state machine.
+
+Each named scenario maps to one of the races identified during the
+PR #601 review iterations. The redesign addresses each by construction
+rather than by patching the old code.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime as dt, timedelta
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from custom_components.keymaster.autolock.store import TimerEntry, TimerStore
+from custom_components.keymaster.autolock.timer import AutolockTimer, TimerState
+from custom_components.keymaster.lock import KeymasterLock
+from homeassistant.util import dt as dt_util
+
+
+@pytest.fixture
+def store(hass) -> TimerStore:
+    return TimerStore(hass)
+
+
+@pytest.fixture
+def kmlock() -> KeymasterLock:
+    return KeymasterLock(
+        lock_name="test_lock",
+        lock_entity_id="lock.test",
+        keymaster_config_entry_id="entry_1",
+    )
+
+
+def make_timer(
+    hass,
+    store: TimerStore,
+    *,
+    timer_id: str = "t1",
+    kmlock: KeymasterLock | None = None,
+    action: AsyncMock | None = None,
+) -> tuple[AutolockTimer, AsyncMock, dict]:
+    """Build an AutolockTimer with a tracked action and mutable kmlock slot.
+
+    Returns (timer, action_mock, slot) where `slot["kmlock"]` is the
+    indirect kmlock the timer resolves at fire time. Mutating
+    `slot["kmlock"] = other` simulates a config-entry reload.
+    """
+    if action is None:
+        action = AsyncMock()
+    slot: dict = {"kmlock": kmlock}
+    timer = AutolockTimer(
+        hass=hass,
+        store=store,
+        timer_id=timer_id,
+        get_kmlock=lambda: slot["kmlock"],
+        action=action,
+    )
+    return timer, action, slot
+
+
+# ----------------------------------------------------------------------
+# State machine basics
+# ----------------------------------------------------------------------
+
+
+async def test_constructed_in_fresh_state(hass, store, kmlock):
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock)
+    assert timer.state == TimerState.FRESH
+    assert not timer.is_running
+    assert timer.end_time is None
+
+
+async def test_start_before_recover_raises(hass, store, kmlock):
+    """start() requires recover() first — the FRESH→ACTIVE transition is
+    forbidden so the timer always sees any persisted prior state.
+    """
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock)
+    with pytest.raises(RuntimeError, match="recover"):
+        await timer.start(duration=300)
+
+
+async def test_recover_with_no_entry_goes_to_done(hass, store, kmlock):
+    timer, action, _ = make_timer(hass, store, kmlock=kmlock)
+    await timer.recover()
+    assert timer.state == TimerState.DONE
+    assert action.await_count == 0
+
+
+async def test_recover_resumes_active_entry(hass, store, kmlock):
+    end_time = dt_util.utcnow() + timedelta(minutes=5)
+    await store.write("t1", TimerEntry(end_time=end_time, duration=300))
+    timer, action, _ = make_timer(hass, store, kmlock=kmlock)
+    await timer.recover()
+    assert timer.state == TimerState.ACTIVE
+    assert timer.is_running
+    assert timer.end_time == end_time
+    assert timer.duration == 300
+    assert action.await_count == 0
+
+
+async def test_recover_fires_expired_entry(hass, store, kmlock):
+    """An entry whose end_time is in the past fires the action immediately."""
+    expired = dt_util.utcnow() - timedelta(minutes=5)
+    await store.write("t1", TimerEntry(end_time=expired, duration=300))
+    timer, action, _ = make_timer(hass, store, kmlock=kmlock)
+    await timer.recover()
+    assert action.await_count == 1
+    assert timer.state == TimerState.DONE
+    assert await store.read("t1") is None
+
+
+# ----------------------------------------------------------------------
+# Start / cancel
+# ----------------------------------------------------------------------
+
+
+async def test_start_writes_entry_and_schedules(hass, store, kmlock):
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock)
+    await timer.recover()
+    await timer.start(duration=300)
+    assert timer.state == TimerState.ACTIVE
+    assert timer.is_running
+    persisted = await store.read("t1")
+    assert persisted is not None
+    assert persisted.duration == 300
+
+
+async def test_start_replaces_prior_schedule(hass, store, kmlock):
+    """Calling start() while ACTIVE cancels the prior schedule and replaces it."""
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock)
+    await timer.recover()
+    await timer.start(duration=300)
+    first_end = timer.end_time
+    await asyncio.sleep(0)
+    await timer.start(duration=600)
+    assert timer.duration == 600
+    assert timer.end_time != first_end
+
+
+async def test_cancel_clears_state_and_store(hass, store, kmlock):
+    timer, action, _ = make_timer(hass, store, kmlock=kmlock)
+    await timer.recover()
+    await timer.start(duration=300)
+    await timer.cancel()
+    assert timer.state == TimerState.DONE
+    assert not timer.is_running
+    assert await store.read("t1") is None
+    assert action.await_count == 0
+
+
+async def test_cancel_idempotent(hass, store, kmlock):
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock)
+    await timer.recover()
+    await timer.cancel()
+    await timer.cancel()  # must not raise
+    assert timer.state == TimerState.DONE
+
+
+# ----------------------------------------------------------------------
+# The races that motivated the redesign
+# ----------------------------------------------------------------------
+
+
+async def test_action_resolves_live_kmlock_at_fire_time(hass, store, kmlock):
+    """A reload between start() and fire-time must NOT cause the action to
+    run against the OLD kmlock. The indirect get_kmlock closure resolves
+    the live one at fire time.
+
+    This was the original PR #601 concern: functools.partial captured the
+    kmlock by reference and mutations landed on the orphaned old instance.
+    """
+    captured_kmlocks: list[KeymasterLock] = []
+
+    async def action(km: KeymasterLock, _now: dt) -> None:
+        captured_kmlocks.append(km)
+
+    new_kmlock = KeymasterLock(
+        lock_name="test_lock",
+        lock_entity_id="lock.test",
+        keymaster_config_entry_id="entry_1",
+    )
+    timer, _, slot = make_timer(hass, store, kmlock=kmlock, action=AsyncMock(wraps=action))
+    await timer.recover()
+
+    # Drive the callback manually via patched async_call_later so we control timing
+    with patch(
+        "custom_components.keymaster.autolock.scheduler.async_call_later"
+    ) as mock_call_later:
+        await timer.start(duration=300)
+        captured_callback = mock_call_later.call_args.kwargs["action"]
+
+    # Simulate a reload between start() and fire
+    slot["kmlock"] = new_kmlock
+
+    await captured_callback(dt_util.utcnow())
+    assert len(captured_kmlocks) == 1
+    assert captured_kmlocks[0] is new_kmlock
+    # Original kmlock was NEVER touched (compare by identity, not equality —
+    # KeymasterLock is a dataclass so == compares field values)
+    assert captured_kmlocks[0] is not kmlock
+
+
+async def test_cancel_awaits_in_flight_action(hass, store, kmlock):
+    """Cancellation must wait for an action that's already firing.
+
+    Otherwise mutations the action makes after cancel() returns could
+    land on stale state (or worse, conflict with the cancel itself).
+    """
+    action_started = asyncio.Event()
+    action_release = asyncio.Event()
+    action_completed = False
+
+    async def slow_action(km: KeymasterLock, _now: dt) -> None:
+        nonlocal action_completed
+        action_started.set()
+        await action_release.wait()
+        action_completed = True
+
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock, action=AsyncMock(wraps=slow_action))
+    await timer.recover()
+
+    with patch(
+        "custom_components.keymaster.autolock.scheduler.async_call_later"
+    ) as mock_call_later:
+        await timer.start(duration=300)
+        captured_callback = mock_call_later.call_args.kwargs["action"]
+
+    fire_task = asyncio.create_task(captured_callback(dt_util.utcnow()))
+    await action_started.wait()
+    cancel_task = asyncio.create_task(timer.cancel())
+    await asyncio.sleep(0)
+    assert not cancel_task.done(), "cancel must wait for in-flight action"
+
+    action_release.set()
+    await asyncio.gather(fire_task, cancel_task)
+    assert action_completed
+
+
+async def test_action_failure_preserves_entry_for_replay(hass, store, kmlock):
+    """If the action raises, the store entry is preserved so the timer
+    replays on the next HA restart. The lock didn't actually lock; we
+    prefer 'fire again later' over 'silently lose the autolock'.
+    """
+
+    async def failing_action(km: KeymasterLock, _now: dt) -> None:
+        raise RuntimeError("lock service unavailable")
+
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock, action=AsyncMock(wraps=failing_action))
+    await timer.recover()
+
+    with patch(
+        "custom_components.keymaster.autolock.scheduler.async_call_later"
+    ) as mock_call_later:
+        await timer.start(duration=300)
+        captured_callback = mock_call_later.call_args.kwargs["action"]
+
+    await captured_callback(dt_util.utcnow())
+
+    persisted = await store.read("t1")
+    assert persisted is not None, "entry must be preserved on action failure"
+
+
+async def test_recovery_action_failure_preserves_entry(hass, store, kmlock):
+    """Same contract for the startup-recovery firing path: action failure
+    leaves the entry on disk so the next restart retries.
+    """
+    expired = dt_util.utcnow() - timedelta(minutes=5)
+    await store.write("t1", TimerEntry(end_time=expired, duration=300))
+
+    async def failing_action(km: KeymasterLock, _now: dt) -> None:
+        raise RuntimeError("lock service unavailable")
+
+    timer, _, _ = make_timer(hass, store, kmlock=kmlock, action=AsyncMock(wraps=failing_action))
+    await timer.recover()
+
+    persisted = await store.read("t1")
+    assert persisted is not None
+
+
+async def test_action_with_no_kmlock_logs_and_skips(hass, store, caplog):
+    """If get_kmlock() returns None at fire time (the kmlock was deleted),
+    skip the action without raising.
+    """
+    action = AsyncMock()
+    timer, _, slot = make_timer(hass, store, kmlock=None, action=action)
+    await timer.recover()
+
+    with patch(
+        "custom_components.keymaster.autolock.scheduler.async_call_later"
+    ) as mock_call_later:
+        slot["kmlock"] = KeymasterLock(
+            lock_name="x", lock_entity_id="lock.x", keymaster_config_entry_id="x"
+        )
+        await timer.start(duration=300)
+        captured_callback = mock_call_later.call_args.kwargs["action"]
+
+    slot["kmlock"] = None  # kmlock vanished before fire
+    await captured_callback(dt_util.utcnow())
+    assert action.await_count == 0
+
+
+async def test_cross_timer_writes_dont_clobber(hass, store, kmlock):
+    """Two timers writing to the same TimerStore concurrently must both
+    end up persisted. The shared lock inside TimerStore is what makes
+    this safe — without it, last-writer wins.
+
+    (This complements the dedicated TimerStore test; here we exercise it
+    through the AutolockTimer surface to cover the integration.)
+    """
+    timer_a, _, _ = make_timer(hass, store, timer_id="a", kmlock=kmlock)
+    timer_b, _, _ = make_timer(hass, store, timer_id="b", kmlock=kmlock)
+    await timer_a.recover()
+    await timer_b.recover()
+    await asyncio.gather(timer_a.start(duration=300), timer_b.start(duration=600))
+    assert await store.read("a") is not None
+    assert await store.read("b") is not None
