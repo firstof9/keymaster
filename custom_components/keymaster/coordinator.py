@@ -32,6 +32,7 @@ from homeassistant.helpers.event import async_call_later, async_track_state_chan
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import slugify
+from homeassistant.util.dt import utcnow
 
 from .autolock import AutolockTimer, TimerStore
 from .const import (
@@ -48,9 +49,11 @@ from .const import (
     DEFAULT_AUTOLOCK_MIN_DAY,
     DEFAULT_AUTOLOCK_MIN_NIGHT,
     DOMAIN,
+    ENTITY_DEBOUNCE_SECONDS,
     EVENT_KEYMASTER_CODE_SLOT_RESET,
     EVENT_KEYMASTER_LOCK_STATE_CHANGED,
     ISSUE_URL,
+    PIN_SET_GRACE_SECONDS,
     QUICK_REFRESH_SECONDS,
     SYNC_STATUS_THRESHOLD,
     THROTTLE_SECONDS,
@@ -112,6 +115,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         self._sync_status_counter: int = 0
         self._quick_refresh: bool = False
         self._cancel_quick_refresh: Callable | None = None
+        self._cancel_debounced_refresh: Callable | None = None
         self._consecutive_failures: dict[str, int] = {}
         self._next_retry_time: dict[str, dt] = {}
 
@@ -1337,6 +1341,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
                 pin,
             )
             kmlock.code_slots[code_slot_num].synced = Synced.SYNCED
+            kmlock.code_slots[code_slot_num].last_code_set_at = utcnow()
             self.async_set_updated_data(dict(self.kmlocks))
             return True
 
@@ -1410,6 +1415,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
                 code_slot_num,
             )
             kmlock.code_slots[code_slot_num].synced = Synced.DISCONNECTED
+            kmlock.code_slots[code_slot_num].last_code_set_at = utcnow()
             self.async_set_updated_data(dict(self.kmlocks))
             return True
 
@@ -1544,6 +1550,28 @@ class KeymasterCoordinator(DataUpdateCoordinator):
     async def _trigger_quick_refresh(self, _: dt) -> None:
         await self.async_request_refresh()
 
+    async def async_request_debounced_refresh(self) -> None:
+        """Request a debounced coordinator refresh.
+
+        Batches rapid entity updates into a single refresh by cancelling
+        any previously scheduled debounced refresh and scheduling a new
+        one after ENTITY_DEBOUNCE_SECONDS.
+        """
+        if self._cancel_debounced_refresh:
+            self._cancel_debounced_refresh()
+            self._cancel_debounced_refresh = None
+
+        self._cancel_debounced_refresh = async_call_later(
+            hass=self.hass,
+            delay=ENTITY_DEBOUNCE_SECONDS,
+            action=self._trigger_debounced_refresh,
+        )
+
+    async def _trigger_debounced_refresh(self, _: dt) -> None:
+        """Trigger a debounced refresh."""
+        self._cancel_debounced_refresh = None
+        await self.async_request_refresh()
+
     async def update_slot_active_state(self, config_entry_id: str, code_slot_num: int) -> bool:
         """Update the active state for a code slot."""
         await self._initial_setup_done_event.wait()
@@ -1642,8 +1670,11 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         self._quick_refresh = False
         self._sync_status_counter += 1
 
-        # Clear any pending refresh callback
+        # Clear any pending refresh callbacks
         await self._clear_pending_quick_refresh()
+        if self._cancel_debounced_refresh:
+            self._cancel_debounced_refresh()
+            self._cancel_debounced_refresh = None
 
         # Update all keymaster locks
         for keymaster_config_entry_id in self.kmlocks:
@@ -1870,13 +1901,24 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             if (not slot.enabled) or (not slot.active) or (not slot.pin):
                 slot.synced = Synced.DISCONNECTED
             elif slot.pin is not None:
-                # We have a local clear PIN; push it to the lock
-                await self.set_pin_on_lock(
-                    config_entry_id=kmlock.keymaster_config_entry_id,
-                    code_slot_num=code_slot_num,
-                    pin=str(slot.pin),
-                    override=True,
-                )
+                # Don't re-push if we just set the code — give the lock time to acknowledge
+                if (
+                    slot.last_code_set_at is not None
+                    and (utcnow() - slot.last_code_set_at).total_seconds() < PIN_SET_GRACE_SECONDS
+                ):
+                    _LOGGER.debug(
+                        "[_sync_pin] Slot %s: Lock reports empty but within grace period. "
+                        "Waiting for lock to acknowledge.",
+                        code_slot_num,
+                    )
+                else:
+                    # We have a local clear PIN; push it to the lock
+                    await self.set_pin_on_lock(
+                        config_entry_id=kmlock.keymaster_config_entry_id,
+                        code_slot_num=code_slot_num,
+                        pin=str(slot.pin),
+                        override=True,
+                    )
             return
 
         # Import pre-existing lock code when keymaster slot has never had a PIN
@@ -1895,24 +1937,73 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             )
             return
 
-        # Lock reported a value. Only overwrite local PIN if it looks like a real numeric code.
+        # Check for mismatch BEFORE overwriting local PIN.
+        # Skip mismatch detection during grace period after code set/clear
+        # to give the lock time to acknowledge the change.
+        if (
+            usercode
+            and usercode.isdigit()
+            and slot.synced == Synced.SYNCED
+            and slot.pin is not None
+            and slot.pin != usercode
+        ):
+            if (
+                slot.last_code_set_at is not None
+                and (utcnow() - slot.last_code_set_at).total_seconds() < PIN_SET_GRACE_SECONDS
+            ):
+                _LOGGER.debug(
+                    "[_sync_pin] Slot %s: PIN mismatch detected but within "
+                    "grace period (%s seconds since last set). Keeping local PIN.",
+                    code_slot_num,
+                    (utcnow() - slot.last_code_set_at).total_seconds(),
+                )
+                return
+            slot.synced = Synced.OUT_OF_SYNC
+            self._quick_refresh = True
+            return
+
+        # Don't import stale lock codes during grace period after a clear.
+        # The lock may still report the old PIN before acknowledging the clear.
+        if (
+            usercode
+            and usercode.isdigit()
+            and slot.last_code_set_at is not None
+            and (utcnow() - slot.last_code_set_at).total_seconds() < PIN_SET_GRACE_SECONDS
+            and (not slot.pin or slot.synced in (Synced.DISCONNECTED, Synced.DELETING))
+        ):
+            _LOGGER.debug(
+                "[_sync_pin] Slot %s: Lock reports stale code after clear, "
+                "within grace period. Preserving cleared state.",
+                code_slot_num,
+            )
+            return
+
+        # No mismatch (or lock agrees with us) — safe to update local state
         if usercode.isdigit():
+            if slot.synced == Synced.OUT_OF_SYNC:
+                # Slot was previously marked out-of-sync.  Only accept the
+                # lock value if it now matches our desired local PIN;
+                # otherwise re-push our PIN to the lock.
+                if slot.pin == usercode:
+                    slot.synced = Synced.SYNCED
+                else:
+                    await self.set_pin_on_lock(
+                        config_entry_id=kmlock.keymaster_config_entry_id,
+                        code_slot_num=code_slot_num,
+                        pin=str(slot.pin),
+                        override=True,
+                    )
+                return
+            if slot.synced in (Synced.ADDING, Synced.DELETING):
+                # A set/clear operation is in flight — preserve local state
+                # to avoid overwriting the desired PIN with a stale lock value.
+                return
             slot.synced = Synced.SYNCED
             slot.pin = usercode
         else:
             # Redacted/masked value reported (e.g., "******"); keep local clear PIN
             # and consider it synced to avoid flip-flopping.
             slot.synced = Synced.SYNCED
-
-        # Only mark out-of-sync when the lock reports a concrete numeric PIN different from ours.
-        if (
-            usercode
-            and usercode.isdigit()
-            and slot.synced == Synced.SYNCED
-            and slot.pin != usercode
-        ):
-            slot.synced = Synced.OUT_OF_SYNC
-            self._quick_refresh = True
 
     async def _sync_child_locks(self, keymaster_config_entry_id: str) -> None:
         """Propagate parent lock settings to child locks."""
