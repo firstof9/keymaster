@@ -243,7 +243,13 @@ async def test_switch_autolock_starts_timer_when_lock_unlocked(
 
     assert entity._attr_is_on is True
     assert kmlock.autolock_enabled is True
+    # Switch must pass an explicit duration kwarg (computed via the
+    # coordinator) — the new AutolockTimer.start() requires it.
     kmlock.autolock_timer.start.assert_called_once()
+    call_kwargs = kmlock.autolock_timer.start.call_args.kwargs
+    assert "duration" in call_kwargs, f"start() must pass duration=, got {call_kwargs}"
+    assert isinstance(call_kwargs["duration"], int)
+    assert call_kwargs["duration"] > 0
 
 
 async def test_switch_autolock_does_not_start_timer_when_lock_locked(

@@ -298,7 +298,9 @@ class KeymasterSwitch(KeymasterEntity, SwitchEntity):
                     and self._kmlock.autolock_timer
                     and not self._kmlock.autolock_timer.is_running
                 ):
-                    await self._kmlock.autolock_timer.start()
+                    await self._kmlock.autolock_timer.start(
+                        duration=self.coordinator.autolock_duration_seconds(self._kmlock)
+                    )
                     self.coordinator.async_set_updated_data(dict(self.coordinator.kmlocks))
             if (
                 self._property.endswith(".enabled")
