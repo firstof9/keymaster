@@ -19,7 +19,27 @@ on:
       - "vitest.config.ts"
 
 jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    name: Pre-commit
+    steps:
+      - name: 📥 Checkout the repository
+        uses: actions/checkout@v4
+      - name: 🛠️ Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: 🛠️ Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "lts/iron"
+      - name: 📦 Install frontend dependencies
+        run: yarn install
+      - name: 🔍 Run pre-commit
+        uses: pre-commit/action@v3.0.1
+
   test:
+    needs: pre-commit
     name: TypeScript Test
     runs-on: ubuntu-latest
     strategy:

@@ -24,6 +24,7 @@ on:
 
 jobs:
   tests:
+    needs: pre-commit
     runs-on: ubuntu-latest
     name: Pytest
     strategy:
@@ -54,9 +55,9 @@ jobs:
           name: coverage-data
           path: coverage.xml
 
-  lint:
+  pre-commit:
     runs-on: ubuntu-latest
-    name: Lint (ruff)
+    name: Pre-commit
     steps:
       - name: 📥 Checkout the repository
         uses: actions/checkout@v4
@@ -64,31 +65,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - name: 🚀 Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: 📦 Install requirements
-        run: uv pip install --system -r requirements_lint.txt
-      - name: 🧹 Run ruff format check
-        run: ruff format --check custom_components/ tests/
-      - name: 🔍 Run ruff check
-        run: ruff check custom_components/ tests/
-
-  mypy:
-    runs-on: ubuntu-latest
-    name: Type check (mypy)
-    steps:
-      - name: 📥 Checkout the repository
-        uses: actions/checkout@v4
-      - name: 🛠️ Set up Python
-        uses: actions/setup-python@v5
+      - name: 🛠️ Set up Node
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.14"
-      - name: 🚀 Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: 📦 Install requirements
-        run: uv pip install --system -r requirements_lint.txt
-      - name: 🔎 Run mypy
-        run: mypy custom_components/keymaster
+          node-version: "lts/iron"
+      - name: 📦 Install frontend dependencies
+        run: yarn install
+      - name: 🔍 Run pre-commit
+        uses: pre-commit/action@v3.0.1
 
   coverage:
     runs-on: ubuntu-latest
