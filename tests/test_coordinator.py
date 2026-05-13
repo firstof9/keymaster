@@ -3018,3 +3018,21 @@ class TestSyncUsercodeRefreshMasked:
         # sees empty code and re-pushes the local PIN to the lock.
         sync_coordinator.set_pin_on_lock.assert_awaited_once()
         assert km_slot.pin == "5678"
+
+async def test_async_shutdown(hass: HomeAssistant) -> None:
+    """Test that async_shutdown cancels pending timers."""
+    coordinator = KeymasterCoordinator(hass)
+    
+    mock_cancel_quick = Mock()
+    mock_cancel_debounced = Mock()
+    
+    coordinator._cancel_quick_refresh = mock_cancel_quick
+    coordinator._cancel_debounced_refresh = mock_cancel_debounced
+    
+    await coordinator.async_shutdown()
+    
+    mock_cancel_quick.assert_called_once()
+    mock_cancel_debounced.assert_called_once()
+    
+    assert coordinator._cancel_quick_refresh is None
+    assert coordinator._cancel_debounced_refresh is None

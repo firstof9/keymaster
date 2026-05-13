@@ -1229,15 +1229,16 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         if kmlock.autolock_timer:
             await kmlock.autolock_timer.cancel()
 
+        if kmlock.pending_delete and not immediate:
+            return
+
+        kmlock.pending_delete = True
+
         if immediate:
             await KeymasterCoordinator._unsubscribe_listeners(kmlock)
             await self._delete_lock(kmlock, utcnow())
             return
 
-        if kmlock.pending_delete:
-            return
-
-        kmlock.pending_delete = True
         _LOGGER.debug(
             "[delete_lock_by_config_entry_id] %s: Scheduled to delete at %s",
             kmlock.lock_name,
