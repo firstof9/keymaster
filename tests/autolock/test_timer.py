@@ -432,7 +432,45 @@ async def test_parse_naive_datetime(hass):
     entry = TimerStore._parse("t1", raw)
     assert entry is None
 
-    # Test invalid duration
+    # Test malformed duration (string)
     raw = {"end_time": "2024-01-01T12:00:00Z", "duration": "invalid"}
     entry = TimerStore._parse("t1", raw)
     assert entry is None
+
+    # Test malformed duration (negative)
+    raw = {"end_time": "2024-01-01T12:00:00Z", "duration": -5}
+    entry = TimerStore._parse("t1", raw)
+    assert entry is None
+
+    # Test malformed raw data (not a dict)
+    entry = TimerStore._parse("t1", "not a dict")
+    assert entry is None
+
+
+def test_timer_entry_validation():
+    """Test TimerEntry data validation."""
+    # Test naive end_time
+    with pytest.raises(ValueError, match="must be timezone-aware"):
+        TimerEntry(end_time=dt(2024, 1, 1), duration=300)
+
+    # Test negative duration
+    with pytest.raises(ValueError, match="must be non-negative"):
+        TimerEntry(end_time=dt_util.now(), duration=-1)
+
+
+async def test_timer_store_read_corrupt(hass):
+    """Test that reading a corrupt entry removes it from the store."""
+    with (
+        patch("homeassistant.helpers.storage.Store.async_load") as mock_load,
+        patch("homeassistant.helpers.storage.Store.async_save") as mock_save,
+    ):
+        # Mock corrupt data (missing end_time)
+        mock_load.mock_add_spec(["async_load", "async_save"])
+        mock_load.return_value = {"t1": {"duration": 300}}
+
+        store = TimerStore(hass)
+        entry = await store.read("t1")
+
+        assert entry is None
+        # Verify it was deleted and saved
+        mock_save.assert_called_with({})
