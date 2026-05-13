@@ -14,7 +14,8 @@
     "useDefineForClassFields": false,
     "strict": true,
     "noImplicitAny": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "skipLibCheck": true
   },
   "include": ["lovelace_strategy/**/*", "tsconfig.json", "rollup.config.js"]
 }
