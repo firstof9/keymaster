@@ -608,7 +608,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             kmlock.lock_name,
         )
 
-        # Subscribe to lock events via provider if available and supports push updates
+        # Subscribe to lock events via provider if available
         if kmlock.provider and kmlock.provider.supports_push_updates:
             unsub = kmlock.provider.subscribe_lock_events(
                 kmlock=kmlock,
@@ -1567,7 +1567,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             action=self._trigger_debounced_refresh,
         )
 
-    async def _trigger_debounced_refresh(self, _: dt) -> None:
+    async def _trigger_debounced_refresh(self, _: dt | None) -> None:
         """Trigger a debounced refresh."""
         self._cancel_debounced_refresh = None
         await self.async_request_refresh()

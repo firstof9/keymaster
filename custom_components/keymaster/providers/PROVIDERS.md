@@ -4,11 +4,14 @@ This guide explains how to add support for new lock platforms in keymaster.
 
 ## Overview
 
-Keymaster uses a provider abstraction to support multiple lock platforms. Each provider implements the `BaseLockProvider` interface to handle platform-specific operations like setting/clearing user codes and subscribing to lock events.
+Keymaster uses a provider abstraction to support multiple lock platforms.
+Each provider implements the `BaseLockProvider` interface to handle
+platform-specific operations like setting/clearing user codes and subscribing
+to lock events.
 
 ## Architecture
 
-```
+```text
 providers/
 ├── __init__.py      # Registry and factory functions
 ├── _base.py         # BaseLockProvider ABC and CodeSlot dataclass
@@ -241,8 +244,8 @@ If the platform requires additional dependencies, add them to `manifest.json`:
 
 | Capability | Property | Description |
 |------------|----------|-------------|
-| Push Updates | `supports_push_updates` | Real-time lock/unlock events with code slot detection |
-| Connection Status | `supports_connection_status` | Lock online/offline tracking |
+| Push Updates | `supports_push_updates` | Real-time events with slot detection |
+| Connection Status | `supports_connection_status` | Online/offline tracking |
 
 ## Testing Your Provider
 
@@ -289,7 +292,9 @@ async def test_zha_set_usercode(mock_zha_provider):
 Always handle platform errors gracefully:
 
 ```python
-async def async_set_usercode(self, slot_num: int, code: str, name: str | None = None) -> bool:
+async def async_set_usercode(
+    self, slot_num: int, code: str, name: str | None = None
+) -> bool:
     try:
         # Attempt operation
         return True

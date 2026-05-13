@@ -1,5 +1,6 @@
 """Tests for the Coordinator."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime as dt, time as dt_time, timedelta
 import json
@@ -1447,7 +1448,7 @@ class TestSetupTimer:
         )
         mock_coordinator.kmlocks["entry_1"] = old_kmlock
 
-        captured_get_kmlock = None
+        captured_get_kmlock: Callable[[], KeymasterLock] | None = None
 
         def capture(*args, **kwargs):
             nonlocal captured_get_kmlock
@@ -1462,6 +1463,7 @@ class TestSetupTimer:
         ):
             await mock_coordinator._setup_timer(old_kmlock)
 
+        assert captured_get_kmlock is not None
         assert captured_get_kmlock() is old_kmlock
         # Simulate reload: swap the kmlock in the coordinator's dict
         mock_coordinator.kmlocks["entry_1"] = new_kmlock
