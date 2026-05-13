@@ -3037,3 +3037,24 @@ async def test_async_shutdown(hass: HomeAssistant) -> None:
 
     assert coordinator._cancel_quick_refresh is None
     assert coordinator._cancel_debounced_refresh is None
+
+
+async def test_delete_lock_pending_delete(hass: HomeAssistant) -> None:
+    """Test that delete_lock_by_config_entry_id returns early if already pending delete."""
+    coordinator = KeymasterCoordinator(hass)
+    lock = KeymasterLock(
+        lock_name="test",
+        lock_entity_id="lock.test",
+        keymaster_config_entry_id="entry_1",
+    )
+    coordinator.kmlocks["entry_1"] = lock
+    coordinator._initial_setup_done_event.set()
+
+    with patch("custom_components.keymaster.coordinator.async_call_later") as mock_call_later:
+        await coordinator.delete_lock_by_config_entry_id("entry_1")
+        assert lock.pending_delete
+        assert mock_call_later.call_count == 1
+
+        # Second call should return early
+        await coordinator.delete_lock_by_config_entry_id("entry_1")
+        assert mock_call_later.call_count == 1

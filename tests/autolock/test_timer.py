@@ -417,3 +417,12 @@ async def test_cross_timer_writes_dont_clobber(hass, store, kmlock):
     assert await store.read("b") is not None
     await cleanup_a()
     await cleanup_b()
+
+
+async def test_parse_naive_datetime(hass):
+    """Test that _parse handles naive datetime strings by interpreting as UTC."""
+    raw = {"end_time": "2024-01-01T12:00:00", "duration": 300}
+    entry = TimerStore._parse("t1", raw)
+    assert entry is not None
+    assert (offset := entry.end_time.utcoffset()) is not None
+    assert offset.total_seconds() == 0
