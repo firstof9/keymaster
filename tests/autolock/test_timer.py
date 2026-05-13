@@ -435,5 +435,4 @@ async def test_parse_naive_datetime(hass):
     # Test invalid duration
     raw = {"end_time": "2024-01-01T12:00:00Z", "duration": "invalid"}
     entry = TimerStore._parse("t1", raw)
-    assert entry is not None
-    assert entry.duration == 0
+    assert entry is None
