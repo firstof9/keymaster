@@ -60,6 +60,9 @@ async def test_setup_entry(
     # Verify migration from version 3 to 4
     assert entries[0].version == 4
 
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
 
 async def test_setup_entry_core_state(
     hass,
@@ -82,6 +85,9 @@ async def test_setup_entry_core_state(
         assert len(hass.states.async_entity_ids(SENSOR_DOMAIN)) == baseline + KEYMASTER_SENSOR_COUNT
         entries = hass.config_entries.async_entries(DOMAIN)
         assert len(entries) == 1
+
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
 
 
 async def test_unload_entry(

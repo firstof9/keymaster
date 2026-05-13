@@ -1213,8 +1213,8 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         if config_entry_id not in self.kmlocks:
             return
         kmlock: KeymasterLock = self.kmlocks[config_entry_id]
-        # if kmlock.autolock_timer:
-        #     await self.kmlocks[config_entry_id].autolock_timer.cancel()
+        if kmlock.autolock_timer:
+            await kmlock.autolock_timer.cancel()
         kmlock.pending_delete = True
         _LOGGER.debug(
             "[delete_lock_by_config_entry_id] %s: Scheduled to delete at %s",
