@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime as dt, time as dt_time, timedelta
 import json
 import random
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -31,7 +32,7 @@ def validate_lock_relationship_invariants(
     Returns list of violation messages. Empty list = all invariants hold.
     This helper would have caught the KeyError bug immediately.
     """
-    violations = []
+    violations: list[str] = []
 
     # Invariant 1: Every child_id in any parent's list must exist in kmlocks
     violations.extend(
@@ -97,7 +98,7 @@ def mock_hass():
 
 
 @pytest.fixture
-def mock_coordinator(mock_hass):
+def mock_coordinator(mock_hass) -> Any:
     """Create a mock KeymasterCoordinator instance."""
     # Use patch to avoid calling the real __init__
     with patch.object(KeymasterCoordinator, "__init__", return_value=None):
@@ -107,7 +108,7 @@ def mock_coordinator(mock_hass):
         coordinator.kmlocks = {}
         # Use setattr to safely add the mock method
         setattr(coordinator, "delete_lock_by_config_entry_id", AsyncMock())
-        coordinator.async_set_updated_data = Mock()
+        setattr(coordinator, "async_set_updated_data", Mock())
         return coordinator
 
 
