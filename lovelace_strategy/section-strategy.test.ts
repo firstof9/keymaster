@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { STATE_NOT_RUNNING } from "home-assistant-js-websocket";
 import { HomeAssistant } from "./ha_type_stubs";
 import { KeymasterSectionStrategy } from "./section-strategy";
+import { KeymasterSectionStrategyConfig } from "./types";
 
 function createMockHass(overrides: Partial<HomeAssistant> = {}): HomeAssistant {
   return {
@@ -31,30 +32,36 @@ describe("KeymasterSectionStrategy", () => {
       const hass = createMockHass();
 
       const result = await KeymasterSectionStrategy.generate(
-        { type: "custom:keymaster", slot_num: 1 } as any,
+        {
+          type: "custom:keymaster",
+          slot_num: 1,
+        } as unknown as KeymasterSectionStrategyConfig,
         hass,
       );
 
       expect(result.cards).toHaveLength(1);
       expect(result.cards![0]).toHaveProperty("type", "markdown");
-      expect((result.cards![0] as any).content).toContain(
-        "Either config_entry_id or lock_name is required",
-      );
+      expect(
+        (result.cards![0] as { content: string }).content,
+      ).toContain("Either config_entry_id or lock_name is required");
     });
 
     it("returns error when slot_num is missing", async () => {
       const hass = createMockHass();
 
       const result = await KeymasterSectionStrategy.generate(
-        { type: "custom:keymaster", config_entry_id: "abc123" } as any,
+        {
+          type: "custom:keymaster",
+          config_entry_id: "abc123",
+        } as unknown as KeymasterSectionStrategyConfig,
         hass,
       );
 
       expect(result.cards).toHaveLength(1);
       expect(result.cards![0]).toHaveProperty("type", "markdown");
-      expect((result.cards![0] as any).content).toContain(
-        "slot_num is required",
-      );
+      expect(
+        (result.cards![0] as { content: string }).content,
+      ).toContain("slot_num is required");
     });
 
     it("calls websocket and returns config", async () => {
@@ -87,7 +94,9 @@ describe("KeymasterSectionStrategy", () => {
       );
 
       expect(result.cards).toHaveLength(1);
-      expect((result.cards![0] as any).content).toContain("WS Error");
+      expect(
+        (result.cards![0] as { content: string }).content,
+      ).toContain("WS Error");
     });
 
     it("handles non-Error catch values", async () => {
@@ -101,7 +110,9 @@ describe("KeymasterSectionStrategy", () => {
       );
 
       expect(result.cards).toHaveLength(1);
-      expect((result.cards![0] as any).content).toContain("Failed to load section");
+      expect(
+        (result.cards![0] as { content: string }).content,
+      ).toContain("Failed to load section");
     });
   });
 });
