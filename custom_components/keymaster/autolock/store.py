@@ -122,7 +122,11 @@ class TimerStore:
             return None
         try:
             end_time = dt.fromisoformat(raw["end_time"])
-        except (KeyError, TypeError, ValueError):
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
             _LOGGER.warning(
                 "[TimerStore] %s: invalid persisted end_time, treating as absent",
                 timer_id,
@@ -135,7 +139,10 @@ class TimerStore:
             end_time = end_time.replace(tzinfo=dt_util.UTC)
         try:
             duration = int(raw.get("duration", 0))
-        except (TypeError, ValueError):
+        except (
+            TypeError,
+            ValueError,
+        ):
             _LOGGER.warning(
                 "[TimerStore] %s: invalid persisted duration, treating as absent",
                 timer_id,

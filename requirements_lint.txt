@@ -4,3 +4,4 @@ pylint
 pylint-per-file-ignores
 ruff
 types-PyYAML
+codespell

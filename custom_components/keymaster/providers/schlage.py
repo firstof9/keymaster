@@ -188,7 +188,10 @@ class SchlageLockProvider(BaseLockProvider):
         try:
             coordinator = schlage_entry.runtime_data
             connected = self._schlage_device_id in coordinator.data.locks
-        except (AttributeError, TypeError):
+        except (
+            AttributeError,
+            TypeError,
+        ):
             connected = False
 
         self._connected = connected

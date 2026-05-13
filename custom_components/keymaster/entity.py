@@ -84,7 +84,12 @@ class KeymasterEntity(CoordinatorEntity[KeymasterCoordinator]):
                     result = result[int(num)]
                 else:
                     result = getattr(result, key)
-        except (TypeError, KeyError, AttributeError, IndexError):
+        except (
+            TypeError,
+            KeyError,
+            AttributeError,
+            IndexError,
+        ):
             return None
 
         return result
