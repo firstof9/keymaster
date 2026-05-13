@@ -57,4 +57,3 @@ export interface KeymasterViewMetadataResponse {
   slot_start: number;
   slot_count: number;
 }
-

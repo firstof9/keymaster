@@ -59,4 +59,3 @@ if (!customElements.get("ll-strategy-section-keymaster-section")) {
     KeymasterSectionStrategyAlias,
   );
 }
-

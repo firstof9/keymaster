@@ -6,11 +6,11 @@ asyncio_mqtt
 homeassistant
 pydispatcher
 pyserial
-serialx
 # Test dependencies for pytest
 pytest
 pytest-cov
 pytest-homeassistant-custom-component
 pyudev
+serialx
 zeroconf
 zwave-js-server-python

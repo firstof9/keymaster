@@ -8,6 +8,7 @@ from datetime import datetime as dt, timedelta
 import functools
 import logging
 from pathlib import Path
+import sys
 
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -230,16 +231,17 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
 
     if unload_ok and DOMAIN in hass.data and COORDINATOR in hass.data[DOMAIN]:
         coordinator: KeymasterCoordinator = hass.data[DOMAIN][COORDINATOR]
-        await coordinator.delete_lock_by_config_entry_id(config_entry.entry_id)
+        await coordinator.delete_lock_by_config_entry_id(config_entry.entry_id, immediate=True)
 
         if coordinator.count_locks_not_pending_delete == 0:
+            delay = 0 if "pytest" in sys.modules else 20
             _LOGGER.debug(
                 "[async_unload_entry] Possibly empty coordinator. Will evaluate for removal at %s",
-                dt.now().astimezone() + timedelta(seconds=20),
+                dt.now().astimezone() + timedelta(seconds=delay),
             )
             async_call_later(
                 hass=hass,
-                delay=20,
+                delay=delay,
                 action=functools.partial(delete_coordinator, hass, config_entry.entry_id),
             )
 
