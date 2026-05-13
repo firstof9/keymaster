@@ -187,6 +187,7 @@ repos:
         args: ["--show-error-codes", "--install-types", "--non-interactive"]
         additional_dependencies:
           - "pytest"
+          - "types-PyYAML"
           - "types-pexpect"
           - "types-pygments"
           - "types-pytz"
