@@ -137,6 +137,15 @@ def skip_notifications_fixture():
         yield
 
 
+@pytest.fixture(autouse=True)
+async def auto_unload(hass: HomeAssistant):
+    """Auto-unload entries after each test."""
+    yield
+    for entry in hass.config_entries.async_entries("keymaster"):
+        await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 @pytest.fixture
 def mock_get_entities():
     """Mock available entities."""

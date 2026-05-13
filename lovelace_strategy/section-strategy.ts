@@ -73,3 +73,4 @@ function createErrorSection(message: string): LovelaceSectionConfig {
     ],
   };
 }
+
