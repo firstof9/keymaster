@@ -15,9 +15,5 @@
     "noImplicitAny": true,
     "strictNullChecks": true
   },
-  "include": [
-    "lovelace_strategy/**/*",
-    "tsconfig.json",
-    "rollup.config.js"
-  ]
+  "include": ["lovelace_strategy/**/*", "tsconfig.json", "rollup.config.js"]
 }

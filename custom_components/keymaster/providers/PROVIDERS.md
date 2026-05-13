@@ -267,16 +267,19 @@ async def test_zha_set_usercode(mock_zha_provider):
 ## Platform-Specific Considerations
 
 ### Z-Wave JS
+
 - Uses `zwave_js_server` library for direct node access
 - Events come via `ZWAVE_JS_NOTIFICATION_EVENT`
 - Has rich code slot metadata
 
 ### ZHA
+
 - Uses Home Assistant services for code operations
 - Events come via `zha_event`
 - May have device-specific quirks
 
 ### Zigbee2MQTT
+
 - Uses MQTT publish/subscribe
 - Requires MQTT integration dependency
 - Device-specific payload formats
@@ -301,6 +304,7 @@ async def async_set_usercode(self, slot_num: int, code: str, name: str | None = 
 ## Debugging Tips
 
 1. Enable debug logging for your provider:
+
    ```yaml
    logger:
      logs:
@@ -308,6 +312,7 @@ async def async_set_usercode(self, slot_num: int, code: str, name: str | None = 
    ```
 
 2. Use `get_platform_data()` to expose diagnostic info:
+
    ```python
    def get_platform_data(self) -> dict[str, Any]:
        return {

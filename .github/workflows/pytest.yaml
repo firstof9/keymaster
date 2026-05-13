@@ -24,7 +24,7 @@ on:
 
 jobs:
   tests:
-    needs: pre-commit
+    needs: prek
     runs-on: ubuntu-latest
     name: Pytest
     strategy:
@@ -55,9 +55,9 @@ jobs:
           name: coverage-data
           path: coverage.xml
 
-  pre-commit:
+  prek:
     runs-on: ubuntu-latest
-    name: Pre-commit
+    name: Prek
     steps:
       - name: 📥 Checkout the repository
         uses: actions/checkout@v4
@@ -71,8 +71,8 @@ jobs:
           node-version: "lts/iron"
       - name: 📦 Install frontend dependencies
         run: yarn install
-      - name: 🔍 Run pre-commit
-        uses: pre-commit/action@v3.0.1
+      - name: 🔍 Run prek
+        uses: j178/prek-action@v2
 
   coverage:
     runs-on: ubuntu-latest
