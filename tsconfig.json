@@ -3,7 +3,7 @@
     "baseUrl": ".",
     "experimentalDecorators": true,
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "paths": {
       "*": ["./node_modules/*"]
     },

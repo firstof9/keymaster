@@ -31,7 +31,7 @@ describe("KeymasterViewStrategy", () => {
   describe("generate", () => {
     it("returns starting view when HA is not running", async () => {
       const hass = createMockHass({
-        config: { state: STATE_NOT_RUNNING },
+        config: { state: STATE_NOT_RUNNING } as any,
       });
 
       const result = await KeymasterViewStrategy.generate(
