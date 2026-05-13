@@ -42,8 +42,6 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - name: Install
         run: yarn install
-      - name: HACS Action
-        uses: "hacs/action@dcb30e72781db3f207d5236b861172774ab0b485" # v2.5.0
       - name: Lint
         run: |
           yarn lint:fix
