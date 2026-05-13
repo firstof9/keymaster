@@ -43,7 +43,7 @@ jobs:
       - name: Install
         run: yarn install
       - name: HACS Action
-        uses: "hacs/action@599e52c8c454478f7253507df038706385310651" # v2.5.0
+        uses: "hacs/action@dcb30e72781db3f207d5236b861172774ab0b485" # v2.5.0
       - name: Lint
         run: |
           yarn lint:fix

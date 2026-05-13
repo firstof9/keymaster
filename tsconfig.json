@@ -9,7 +9,7 @@
     },
     "resolveJsonModule": true,
     "rootDir": ".",
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "5.0",
     "target": "es2022",
     "useDefineForClassFields": false,
     "strict": true,

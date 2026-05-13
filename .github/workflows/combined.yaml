@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" # v6.0.2
       - name: HACS Action
-        uses: "hacs/action@599e52c8c454478f7253507df038706385310651" # v2.5.0
+        uses: "hacs/action@dcb30e72781db3f207d5236b861172774ab0b485" # v2.5.0
         with:
           category: "integration"
   validate_hassfest:
@@ -20,4 +20,4 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
       - uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" # v6.0.2
-      - uses: home-assistant/actions/hassfest@9ef028682977b3b9b4701e1948505504746f3325 # master
+      - uses: home-assistant/actions/hassfest@f6f29a7ee3fa0eccadf3620a7b9ee00ab54ec03b # master
