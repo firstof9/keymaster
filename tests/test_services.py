@@ -31,6 +31,9 @@ async def test_service_regenerate_lovelace(hass, keymaster_integration, caplog):
     await hass.services.async_call(DOMAIN, SERVICE_REGENERATE_LOVELACE, servicedata, blocking=True)
     await hass.async_block_till_done()
 
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
     # Check for exception when unable to create directory
     # with (
     #     patch("custom_components.keymaster.services.os", autospec=True) as mock_os,

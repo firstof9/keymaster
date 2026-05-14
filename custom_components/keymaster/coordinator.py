@@ -129,6 +129,17 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._timer_store = TimerStore(hass)
 
+    async def async_shutdown(self) -> None:
+        """Shutdown the coordinator and cancel any pending timers."""
+        _LOGGER.debug("Shutting down keymaster coordinator")
+        if self._cancel_quick_refresh:
+            self._cancel_quick_refresh()
+            self._cancel_quick_refresh = None
+        if self._cancel_debounced_refresh:
+            self._cancel_debounced_refresh()
+            self._cancel_debounced_refresh = None
+        await super().async_shutdown()
+
     async def initial_setup(self) -> None:
         """Trigger the initial async_setup."""
         await self._async_setup()
@@ -608,7 +619,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             kmlock.lock_name,
         )
 
-        # Subscribe to lock events via provider if available and supports push updates
+        # Subscribe to lock events via provider if available
         if kmlock.provider and kmlock.provider.supports_push_updates:
             unsub = kmlock.provider.subscribe_lock_events(
                 kmlock=kmlock,
@@ -1207,19 +1218,31 @@ class KeymasterCoordinator(DataUpdateCoordinator):
         await self.async_refresh()
         return
 
-    async def delete_lock_by_config_entry_id(self, config_entry_id: str) -> None:
+    async def delete_lock_by_config_entry_id(
+        self, config_entry_id: str, immediate: bool = False
+    ) -> None:
         """Delete a keymaster lock by entry_id."""
         await self._initial_setup_done_event.wait()
         if config_entry_id not in self.kmlocks:
             return
         kmlock: KeymasterLock = self.kmlocks[config_entry_id]
-        # if kmlock.autolock_timer:
-        #     await self.kmlocks[config_entry_id].autolock_timer.cancel()
+        if kmlock.autolock_timer:
+            await kmlock.autolock_timer.cancel()
+
+        if kmlock.pending_delete and not immediate:
+            return
+
         kmlock.pending_delete = True
+
+        if immediate:
+            await KeymasterCoordinator._unsubscribe_listeners(kmlock)
+            await self._delete_lock(kmlock, utcnow())
+            return
+
         _LOGGER.debug(
             "[delete_lock_by_config_entry_id] %s: Scheduled to delete at %s",
             kmlock.lock_name,
-            dt.now().astimezone() + timedelta(seconds=10),
+            dt.now().astimezone() + timedelta(seconds=QUICK_REFRESH_SECONDS),
         )
         kmlock.listeners.append(
             async_call_later(
@@ -1567,7 +1590,7 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             action=self._trigger_debounced_refresh,
         )
 
-    async def _trigger_debounced_refresh(self, _: dt) -> None:
+    async def _trigger_debounced_refresh(self, _: dt | None) -> None:
         """Trigger a debounced refresh."""
         self._cancel_debounced_refresh = None
         await self.async_request_refresh()

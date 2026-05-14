@@ -4,12 +4,12 @@ fail_under = 80
 
 [tool.mypy]
 platform = "linux"
-python_version = "3.13"
+python_version = "3.14"
 follow_imports = "silent"
 ignore_missing_imports = true
 exclude = ["ha-core/"]
 check_untyped_defs = true
-disable_error_code = ["annotation-unchecked", "import-not-found", "import-untyped", "call-arg", "literal-required"]
+disable_error_code = ["annotation-unchecked", "import-not-found", "import-untyped", "call-arg", "literal-required", "method-assign"]
 disallow_incomplete_defs = false
 disallow_subclassing_any = false
 disallow_untyped_calls = false
@@ -52,7 +52,7 @@ line-length = 100
 indent-width = 4
 fix = true
 force-exclude = true
-target-version = "py313"
+target-version = "py314"
 required-version = ">=0.8.0"
 exclude = ["ha-core"]
 

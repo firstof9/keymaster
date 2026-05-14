@@ -4,11 +4,14 @@ This guide explains how to add support for new lock platforms in keymaster.
 
 ## Overview
 
-Keymaster uses a provider abstraction to support multiple lock platforms. Each provider implements the `BaseLockProvider` interface to handle platform-specific operations like setting/clearing user codes and subscribing to lock events.
+Keymaster uses a provider abstraction to support multiple lock platforms.
+Each provider implements the `BaseLockProvider` interface to handle
+platform-specific operations like setting/clearing user codes and subscribing
+to lock events.
 
 ## Architecture
 
-```
+```text
 providers/
 ├── __init__.py      # Registry and factory functions
 ├── _base.py         # BaseLockProvider ABC and CodeSlot dataclass
@@ -241,8 +244,8 @@ If the platform requires additional dependencies, add them to `manifest.json`:
 
 | Capability | Property | Description |
 |------------|----------|-------------|
-| Push Updates | `supports_push_updates` | Real-time lock/unlock events with code slot detection |
-| Connection Status | `supports_connection_status` | Lock online/offline tracking |
+| Push Updates | `supports_push_updates` | Real-time events with slot detection |
+| Connection Status | `supports_connection_status` | Online/offline tracking |
 
 ## Testing Your Provider
 
@@ -267,16 +270,19 @@ async def test_zha_set_usercode(mock_zha_provider):
 ## Platform-Specific Considerations
 
 ### Z-Wave JS
+
 - Uses `zwave_js_server` library for direct node access
 - Events come via `ZWAVE_JS_NOTIFICATION_EVENT`
 - Has rich code slot metadata
 
 ### ZHA
+
 - Uses Home Assistant services for code operations
 - Events come via `zha_event`
 - May have device-specific quirks
 
 ### Zigbee2MQTT
+
 - Uses MQTT publish/subscribe
 - Requires MQTT integration dependency
 - Device-specific payload formats
@@ -286,7 +292,9 @@ async def test_zha_set_usercode(mock_zha_provider):
 Always handle platform errors gracefully:
 
 ```python
-async def async_set_usercode(self, slot_num: int, code: str, name: str | None = None) -> bool:
+async def async_set_usercode(
+    self, slot_num: int, code: str, name: str | None = None
+) -> bool:
     try:
         # Attempt operation
         return True
@@ -301,6 +309,7 @@ async def async_set_usercode(self, slot_num: int, code: str, name: str | None = 
 ## Debugging Tips
 
 1. Enable debug logging for your provider:
+
    ```yaml
    logger:
      logs:
@@ -308,6 +317,7 @@ async def async_set_usercode(self, slot_num: int, code: str, name: str | None = 
    ```
 
 2. Use `get_platform_data()` to expose diagnostic info:
+
    ```python
    def get_platform_data(self) -> dict[str, Any]:
        return {

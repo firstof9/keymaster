@@ -1,3 +1,4 @@
+codespell
 # Lint dependencies for ruff, mypy, and pylint
 mypy
 pylint

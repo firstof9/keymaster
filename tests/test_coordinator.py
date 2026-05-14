@@ -1,9 +1,11 @@
 """Tests for the Coordinator."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime as dt, time as dt_time, timedelta
 import json
 import random
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -31,7 +33,7 @@ def validate_lock_relationship_invariants(
     Returns list of violation messages. Empty list = all invariants hold.
     This helper would have caught the KeyError bug immediately.
     """
-    violations = []
+    violations: list[str] = []
 
     # Invariant 1: Every child_id in any parent's list must exist in kmlocks
     violations.extend(
@@ -97,7 +99,7 @@ def mock_hass():
 
 
 @pytest.fixture
-def mock_coordinator(mock_hass):
+def mock_coordinator(mock_hass) -> Any:
     """Create a mock KeymasterCoordinator instance."""
     # Use patch to avoid calling the real __init__
     with patch.object(KeymasterCoordinator, "__init__", return_value=None):
@@ -107,7 +109,7 @@ def mock_coordinator(mock_hass):
         coordinator.kmlocks = {}
         # Use setattr to safely add the mock method
         setattr(coordinator, "delete_lock_by_config_entry_id", AsyncMock())
-        coordinator.async_set_updated_data = Mock()
+        setattr(coordinator, "async_set_updated_data", Mock())
         return coordinator
 
 
@@ -1446,7 +1448,7 @@ class TestSetupTimer:
         )
         mock_coordinator.kmlocks["entry_1"] = old_kmlock
 
-        captured_get_kmlock = None
+        captured_get_kmlock: Callable[[], KeymasterLock] | None = None
 
         def capture(*args, **kwargs):
             nonlocal captured_get_kmlock
@@ -1461,6 +1463,7 @@ class TestSetupTimer:
         ):
             await mock_coordinator._setup_timer(old_kmlock)
 
+        assert captured_get_kmlock is not None
         assert captured_get_kmlock() is old_kmlock
         # Simulate reload: swap the kmlock in the coordinator's dict
         mock_coordinator.kmlocks["entry_1"] = new_kmlock
@@ -3015,3 +3018,43 @@ class TestSyncUsercodeRefreshMasked:
         # sees empty code and re-pushes the local PIN to the lock.
         sync_coordinator.set_pin_on_lock.assert_awaited_once()
         assert km_slot.pin == "5678"
+
+
+async def test_async_shutdown(hass: HomeAssistant) -> None:
+    """Test that async_shutdown cancels pending timers."""
+    coordinator = KeymasterCoordinator(hass)
+
+    mock_cancel_quick = Mock()
+    mock_cancel_debounced = Mock()
+
+    coordinator._cancel_quick_refresh = mock_cancel_quick
+    coordinator._cancel_debounced_refresh = mock_cancel_debounced
+
+    await coordinator.async_shutdown()
+
+    mock_cancel_quick.assert_called_once()
+    mock_cancel_debounced.assert_called_once()
+
+    assert coordinator._cancel_quick_refresh is None
+    assert coordinator._cancel_debounced_refresh is None
+
+
+async def test_delete_lock_pending_delete(hass: HomeAssistant) -> None:
+    """Test that delete_lock_by_config_entry_id returns early if already pending delete."""
+    coordinator = KeymasterCoordinator(hass)
+    lock = KeymasterLock(
+        lock_name="test",
+        lock_entity_id="lock.test",
+        keymaster_config_entry_id="entry_1",
+    )
+    coordinator.kmlocks["entry_1"] = lock
+    coordinator._initial_setup_done_event.set()
+
+    with patch("custom_components.keymaster.coordinator.async_call_later") as mock_call_later:
+        await coordinator.delete_lock_by_config_entry_id("entry_1")
+        assert lock.pending_delete
+        assert mock_call_later.call_count == 1
+
+        # Second call should return early
+        await coordinator.delete_lock_by_config_entry_id("entry_1")
+        assert mock_call_later.call_count == 1

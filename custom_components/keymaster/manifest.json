@@ -17,12 +17,7 @@
     "zwave",
     "zwave_js"
   ],
-  "codeowners": [
-    "@FutureTense",
-    "@firstof9",
-    "@raman325",
-    "@tykeal"
-  ],
+  "codeowners": ["@FutureTense", "@firstof9", "@raman325", "@tykeal"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/FutureTense/keymaster",

@@ -325,12 +325,7 @@
         "stateful": true,
         "secret": false
       },
-      "value": [
-        false,
-        false,
-        false,
-        false
-      ]
+      "value": [false, false, false, false]
     },
     {
       "endpoint": 0,
@@ -347,12 +342,7 @@
         "stateful": true,
         "secret": false
       },
-      "value": [
-        false,
-        false,
-        false,
-        false
-      ]
+      "value": [false, false, false, false]
     },
     {
       "endpoint": 0,
@@ -392,12 +382,7 @@
         "stateful": true,
         "secret": false
       },
-      "value": [
-        false,
-        false,
-        false,
-        false
-      ]
+      "value": [false, false, false, false]
     },
     {
       "endpoint": 0,
@@ -414,12 +399,7 @@
         "stateful": true,
         "secret": false
       },
-      "value": [
-        false,
-        false,
-        false,
-        false
-      ]
+      "value": [false, false, false, false]
     },
     {
       "endpoint": 0,
@@ -3164,9 +3144,7 @@
         "stateful": true,
         "secret": false
       },
-      "value": [
-        "3.33"
-      ]
+      "value": ["3.33"]
     },
     {
       "endpoint": 0,
@@ -3235,9 +3213,7 @@
   ],
   "isFrequentListening": "1000ms",
   "maxDataRate": 40000,
-  "supportedDataRates": [
-    40000
-  ],
+  "supportedDataRates": [40000],
   "protocolVersion": 3,
   "supportsBeaming": true,
   "supportsSecurity": false,
@@ -3269,13 +3245,9 @@
     "rssi": -85,
     "lwr": {
       "protocolDataRate": 2,
-      "repeaters": [
-        4
-      ],
+      "repeaters": [4],
       "rssi": -84,
-      "repeaterRSSI": [
-        127
-      ]
+      "repeaterRSSI": [127]
     },
     "nlwr": {
       "protocolDataRate": 2,

@@ -32,7 +32,9 @@ class TestBaseLockProviderPingNode:
             async def async_get_usercode(self, slot_num: int) -> CodeSlot | None:
                 return None
 
-            async def async_set_usercode(self, slot_num: int, code: str) -> bool:
+            async def async_set_usercode(
+                self, slot_num: int, code: str, name: str | None = None
+            ) -> bool:
                 return True
 
             async def async_clear_usercode(self, slot_num: int) -> bool:

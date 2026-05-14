@@ -261,7 +261,7 @@ class TestDebouncedRefresh:
 
             # Cancel the pending async_call_later timer before manually triggering
             coordinator._cancel_debounced_refresh()
-            await coordinator._trigger_debounced_refresh(None)
+            await coordinator._trigger_debounced_refresh(utcnow())
 
             mock_refresh.assert_called_once()
 
@@ -288,7 +288,7 @@ class TestDebouncedRefresh:
         coordinator._cancel_debounced_refresh = Mock()
 
         with patch.object(coordinator, "async_request_refresh", new=AsyncMock()):
-            await coordinator._trigger_debounced_refresh(None)
+            await coordinator._trigger_debounced_refresh(utcnow())
 
         assert coordinator._cancel_debounced_refresh is None
 

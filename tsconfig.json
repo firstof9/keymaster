@@ -3,21 +3,19 @@
     "baseUrl": ".",
     "experimentalDecorators": true,
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "paths": {
       "*": ["./node_modules/*"]
     },
     "resolveJsonModule": true,
     "rootDir": ".",
+    "ignoreDeprecations": "5.0",
     "target": "es2022",
     "useDefineForClassFields": false,
     "strict": true,
     "noImplicitAny": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "skipLibCheck": true
   },
-  "include": [
-    "lovelace_strategy/**/*",
-    "tsconfig.json",
-    "rollup.config.js"
-  ]
+  "include": ["lovelace_strategy/**/*", "tsconfig.json", "rollup.config.js"]
 }
