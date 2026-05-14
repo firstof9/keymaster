@@ -13,6 +13,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.keymaster.lovelace import (
     _find_battery_entity,
+    _generate_date_range_entities,
     async_generate_lovelace,
     delete_lovelace,
     generate_view_config,
@@ -984,3 +985,57 @@ async def test_generate_view_config_badges_autolock_timer(hass: HomeAssistant):
     assert any(
         v.get("condition") == "state" and v.get("state_not") == "unavailable" for v in visibility
     )
+
+
+def test_generate_date_range_entities_non_parent_uses_simple_entity():
+    """Test non-parent datetime rows use simple-entity with more-info tap action."""
+    entities = _generate_date_range_entities(code_slot_num=1, parent=False)
+
+    # First entity is the divider, second is the switch, then two datetime conditionals
+    assert entities[0] == {"type": "divider"}
+    assert len(entities) == 4  # divider + switch + 2 datetime conditionals
+
+    # Switch row should NOT have type set (not simple-entity)
+    switch_row = entities[1]
+    assert "type" not in switch_row
+
+    # Datetime conditional rows should use simple-entity with more-info
+    assert entities[2]["type"] == "conditional"
+    assert entities[2]["row"]["type"] == "simple-entity"
+    assert entities[2]["row"]["tap_action"] == {"action": "more-info"}
+    assert entities[2]["row"]["entity"] == "datetime.code_slots:1.accesslimit_date_range_start"
+    assert entities[2]["row"]["icon"] == "mdi:pencil"
+
+    assert entities[3]["type"] == "conditional"
+    assert entities[3]["row"]["type"] == "simple-entity"
+    assert entities[3]["row"]["tap_action"] == {"action": "more-info"}
+    assert entities[3]["row"]["entity"] == "datetime.code_slots:1.accesslimit_date_range_end"
+    assert entities[3]["row"]["icon"] == "mdi:pencil"
+
+
+def test_generate_date_range_entities_parent_uses_simple_entity_no_tap():
+    """Test parent datetime rows use simple-entity with tap_action none."""
+    entities = _generate_date_range_entities(code_slot_num=1, parent=True)
+
+    # No divider for parent
+    assert len(entities) == 3  # switch + 2 datetime conditionals (no divider)
+
+    # First is switch (simple-entity, tap none)
+    switch_row = entities[0]
+    assert switch_row["type"] == "simple-entity"
+    assert switch_row["tap_action"] == {"action": "none"}
+
+    # Datetime conditional rows should use simple-entity with tap none
+    assert entities[1]["type"] == "conditional"
+    assert entities[1]["row"]["type"] == "simple-entity"
+    assert entities[1]["row"]["tap_action"] == {"action": "none"}
+    assert (
+        entities[1]["row"]["entity"] == "parent.datetime.code_slots:1.accesslimit_date_range_start"
+    )
+    assert "icon" not in entities[1]["row"]
+
+    assert entities[2]["type"] == "conditional"
+    assert entities[2]["row"]["type"] == "simple-entity"
+    assert entities[2]["row"]["tap_action"] == {"action": "none"}
+    assert entities[2]["row"]["entity"] == "parent.datetime.code_slots:1.accesslimit_date_range_end"
+    assert "icon" not in entities[2]["row"]
