@@ -320,6 +320,26 @@ class ZHALockProvider(BaseLockProvider):
             if status is None and isinstance(result, list | tuple) and len(result) > 0:
                 status = result[0]
             if status is not None and status != 0:
+                # Some ZHA locks (e.g. Yale YRD210) return status 3
+                # (ZCL MEMORY_FULL / slot-occupied) when set_pin_code is called
+                # on a slot that already holds any code. The PIN is still
+                # accepted by the lock, so treat this as a soft success to
+                # prevent an infinite retry loop from flooding the logs.
+                if int(status) == 3:
+                    _LOGGER.debug(
+                        "Lock %s slot %s set_pin_code returned status %s "
+                        "(slot may already be occupied); treating as success",
+                        self.lock_entity_id,
+                        slot_num,
+                        status,
+                    )
+                    existing = self._usercodes_cache.get(slot_num)
+                    self._usercodes_cache[slot_num] = CodeSlot(
+                        slot_num=slot_num,
+                        code=existing.code if existing else code,
+                        in_use=existing.in_use if existing else True,
+                    )
+                    return True
                 _LOGGER.error(
                     "Lock %s slot %s set_pin_code rejected: status %s",
                     self.lock_entity_id,

@@ -443,6 +443,56 @@ class TestUsercodeOperations:
         assert result is False
         assert 2 not in provider._usercodes_cache
 
+    async def test_set_usercode_status_3_no_existing_cache(self, provider, mock_zha_gateway):
+        """Test set_usercode treats status 3 as soft-success when cache is empty.
+
+        Some ZHA locks (e.g. Yale YRD210) return Status.undefined_0x03 (value 3)
+        when set_pin_code is called on a slot that already holds a code. This
+        should stop the infinite retry loop without reporting an error.
+        """
+        setup_successful_connect(provider)
+        await provider.async_connect()
+
+        cmd_result = MagicMock()
+        cmd_result.status = 3
+        mock_zha_gateway["cluster"].set_pin_code.return_value = cmd_result
+
+        result = await provider.async_set_usercode(1, "1234")
+        assert result is True
+        # Cache should contain the code we tried to set (no prior cache)
+        assert provider._usercodes_cache[1] == CodeSlot(slot_num=1, code="1234", in_use=True)
+
+    async def test_set_usercode_status_3_preserves_existing_cache(self, provider, mock_zha_gateway):
+        """Test set_usercode status 3 preserves an existing cached code.
+
+        When the cache already contains a code for the slot, the status-3
+        soft-success path should keep that existing cached value.
+        """
+        setup_successful_connect(provider)
+        await provider.async_connect()
+
+        provider._usercodes_cache[1] = CodeSlot(slot_num=1, code="9999", in_use=True)
+
+        cmd_result = MagicMock()
+        cmd_result.status = 3
+        mock_zha_gateway["cluster"].set_pin_code.return_value = cmd_result
+
+        result = await provider.async_set_usercode(1, "1234")
+        assert result is True
+        # Existing cache entry is preserved
+        assert provider._usercodes_cache[1] == CodeSlot(slot_num=1, code="9999", in_use=True)
+
+    async def test_set_usercode_status_list_3_soft_success(self, provider, mock_zha_gateway):
+        """Test set_usercode handles status 3 delivered as a list element."""
+        setup_successful_connect(provider)
+        await provider.async_connect()
+
+        mock_zha_gateway["cluster"].set_pin_code.return_value = [3]
+
+        result = await provider.async_set_usercode(2, "5678")
+        assert result is True
+        assert provider._usercodes_cache[2] == CodeSlot(slot_num=2, code="5678", in_use=True)
+
     async def test_clear_usercode_success(self, provider, mock_zha_gateway):
         """Test clear_usercode calls cluster directly and updates cache on success."""
         setup_successful_connect(provider)
