@@ -22,7 +22,7 @@ from custom_components.keymaster.providers import CodeSlot
 from homeassistant.components.lock.const import LockState
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_CLOSED, STATE_OPEN
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant
 
 
 def validate_lock_relationship_invariants(
@@ -3336,3 +3336,145 @@ async def test_delete_lock_pending_delete(hass: HomeAssistant) -> None:
         # Second call should return early
         await coordinator.delete_lock_by_config_entry_id("entry_1")
         assert mock_call_later.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "method_to_fail",
+    [
+        "_async_load_data",
+        "_rebuild_lock_relationships",
+        "_setup_timers",
+    ],
+)
+async def test_async_setup_exception_sets_event(hass: HomeAssistant, method_to_fail: str) -> None:
+    """Test that _async_setup sets the initial setup done event even if an error is encountered."""
+    coordinator = KeymasterCoordinator(hass)
+    lock = KeymasterLock(
+        lock_name="test_lock",
+        lock_entity_id="lock.test_lock",
+        keymaster_config_entry_id="entry_1",
+    )
+    with (
+        patch.object(coordinator, "_async_load_data", return_value={"entry_1": lock}),
+        patch.object(coordinator, "_rebuild_lock_relationships", new_callable=AsyncMock),
+        patch.object(coordinator, "_update_door_and_lock_state", new_callable=AsyncMock),
+        patch.object(coordinator, "_setup_timers", new_callable=AsyncMock),
+        patch.object(coordinator, "_update_listeners", new_callable=AsyncMock),
+        patch.object(coordinator, "_verify_lock_configuration", new_callable=AsyncMock),
+        patch.object(coordinator, method_to_fail, side_effect=RuntimeError("Test error")),
+    ):
+        with pytest.raises(RuntimeError):
+            await coordinator._async_setup()
+        assert coordinator._initial_setup_done_event.is_set()
+
+
+async def test_async_setup_success(hass: HomeAssistant) -> None:
+    """Test that _async_setup runs successfully and sets the event."""
+    coordinator = KeymasterCoordinator(hass)
+    lock = KeymasterLock(
+        lock_name="test_lock",
+        lock_entity_id="lock.test_lock",
+        keymaster_config_entry_id="entry_1",
+    )
+
+    # Invariants verification: setup steps must run before the event is set;
+    # verify_lock_configuration (post-setup) must run after the event is set.
+    async def mock_rebuild_side_effect():
+        assert not coordinator._initial_setup_done_event.is_set()
+
+    async def mock_verify_side_effect():
+        assert coordinator._initial_setup_done_event.is_set()
+
+    with (
+        patch.object(coordinator, "_async_load_data", return_value={"entry_1": lock}),
+        patch.object(
+            coordinator,
+            "_rebuild_lock_relationships",
+            new_callable=AsyncMock,
+            side_effect=mock_rebuild_side_effect,
+        ) as mock_rebuild,
+        patch.object(
+            coordinator, "_update_door_and_lock_state", new_callable=AsyncMock
+        ) as mock_update_state,
+        patch.object(coordinator, "_setup_timers", new_callable=AsyncMock) as mock_setup_timers,
+        patch.object(
+            coordinator, "_update_listeners", new_callable=AsyncMock
+        ) as mock_update_listeners,
+        patch.object(
+            coordinator,
+            "_verify_lock_configuration",
+            new_callable=AsyncMock,
+            side_effect=mock_verify_side_effect,
+        ) as mock_verify_config,
+    ):
+        await coordinator._async_setup()
+
+        mock_rebuild.assert_called_once()
+        mock_update_state.assert_called_once()
+        mock_setup_timers.assert_called_once()
+        mock_update_listeners.assert_called_once_with(lock)
+        mock_verify_config.assert_called_once()
+        assert coordinator._initial_setup_done_event.is_set()
+
+
+async def test_unsubscribe_listeners_edge_cases(hass: HomeAssistant) -> None:
+    """Test edge cases in _unsubscribe_listeners."""
+    # Case 1: listeners attribute is absent
+    lock_no_attr = KeymasterLock(
+        lock_name="test_lock",
+        lock_entity_id="lock.test_lock",
+        keymaster_config_entry_id="entry_1",
+    )
+    if hasattr(lock_no_attr, "listeners"):
+        delattr(lock_no_attr, "listeners")
+
+    await KeymasterCoordinator._unsubscribe_listeners(lock_no_attr)
+    assert lock_no_attr.listeners == []
+
+    # Case 2: listeners attribute is None
+    lock_none_listeners = KeymasterLock(
+        lock_name="test_lock",
+        lock_entity_id="lock.test_lock",
+        keymaster_config_entry_id="entry_1",
+    )
+    lock_none_listeners.listeners = None  # type: ignore[assignment]
+
+    await KeymasterCoordinator._unsubscribe_listeners(lock_none_listeners)
+    assert lock_none_listeners.listeners == []
+
+    # Case 3: one listener raises an exception
+    lock_with_exceptions = KeymasterLock(
+        lock_name="test_lock",
+        lock_entity_id="lock.test_lock",
+        keymaster_config_entry_id="entry_1",
+    )
+    mock_unsub_success = Mock()
+    mock_unsub_fail = Mock(side_effect=RuntimeError("Unsubscribe failed"))
+    lock_with_exceptions.listeners = [mock_unsub_success, mock_unsub_fail]
+
+    await KeymasterCoordinator._unsubscribe_listeners(lock_with_exceptions)
+    mock_unsub_success.assert_called_once()
+    mock_unsub_fail.assert_called_once()
+    assert lock_with_exceptions.listeners == []
+
+
+async def test_create_listeners_with_event(hass: HomeAssistant) -> None:
+    """Test _create_listeners clears listeners list when called with an event."""
+    coordinator = KeymasterCoordinator(hass)
+    lock = KeymasterLock(
+        lock_name="test_lock",
+        lock_entity_id="lock.test_lock",
+        keymaster_config_entry_id="entry_1",
+    )
+    mock_unsub = Mock()
+    lock.listeners = [mock_unsub]
+
+    # Call _create_listeners with a dummy event
+    with (
+        patch.object(coordinator, "_handle_door_state_change"),
+        patch.object(coordinator, "_handle_lock_state_change"),
+    ):
+        await coordinator._create_listeners(lock, event=Event("homeassistant_started"))
+
+    # The existing listeners in the list should be cleared out since event is not None
+    assert mock_unsub not in lock.listeners

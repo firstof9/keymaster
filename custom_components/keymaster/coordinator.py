@@ -155,16 +155,20 @@ class KeymasterCoordinator(DataUpdateCoordinator):
             ISSUE_URL,
         )
 
-        imported_config = await self._async_load_data()
+        try:
+            imported_config = await self._async_load_data()
 
-        _LOGGER.debug("[async_setup] Imported %s keymaster locks", len(imported_config))
-        self.kmlocks = imported_config
-        await self._rebuild_lock_relationships()
-        await self._update_door_and_lock_state()
-        await self._setup_timers()
-        for lock in self.kmlocks.values():
-            await self._update_listeners(lock)
-        self._initial_setup_done_event.set()
+            _LOGGER.debug("[async_setup] Imported %s keymaster locks", len(imported_config))
+            self.kmlocks = imported_config
+            await self._rebuild_lock_relationships()
+            await self._update_door_and_lock_state()
+            await self._setup_timers()
+            for lock in self.kmlocks.values():
+                await self._update_listeners(lock)
+        finally:
+            # Set the event unconditionally to prevent deadlocks on failed setup
+            self._initial_setup_done_event.set()
+
         await self._verify_lock_configuration()
 
     async def _async_load_data(self) -> MutableMapping[str, KeymasterLock]:
@@ -676,13 +680,16 @@ class KeymasterCoordinator(DataUpdateCoordinator):
     async def _create_listeners(
         self,
         kmlock: KeymasterLock,
-        _: Event | None = None,
+        event: Event | None = None,
     ) -> None:
         """Start tracking state changes after HomeAssistant has started."""
         _LOGGER.debug(
             "[create_listeners] %s: Creating lock event listeners",
             kmlock.lock_name,
         )
+        if event is not None:
+            # Clear the expired one-time EVENT_HOMEASSISTANT_STARTED listener
+            kmlock.listeners = []
 
         # Subscribe to lock events via provider if available
         if kmlock.provider and kmlock.provider.supports_push_updates:
@@ -720,13 +727,30 @@ class KeymasterCoordinator(DataUpdateCoordinator):
     @staticmethod
     async def _unsubscribe_listeners(kmlock: KeymasterLock) -> None:
         # Unsubscribe to any listeners
-        _LOGGER.debug("[unsubscribe_listeners] %s: Removing all listeners", kmlock.lock_name)
+        _LOGGER.debug(
+            "[unsubscribe_listeners] %s: Removing all listeners (count: %s)",
+            kmlock.lock_name,
+            len(kmlock.listeners) if hasattr(kmlock, "listeners") and kmlock.listeners else 0,
+        )
         if not hasattr(kmlock, "listeners") or kmlock.listeners is None:
             kmlock.listeners = []
             return
-        for unsub_listener in kmlock.listeners:
-            unsub_listener()
+        for i, unsub_listener in enumerate(kmlock.listeners):
+            _LOGGER.debug(
+                "[unsubscribe_listeners] %s: Calling listener %s of type %s",
+                kmlock.lock_name,
+                i,
+                type(unsub_listener),
+            )
+            try:
+                unsub_listener()
+            except Exception:
+                _LOGGER.exception("[unsubscribe_listeners] Error calling listener %s", i)
+            _LOGGER.debug("[unsubscribe_listeners] %s: Finished listener %s", kmlock.lock_name, i)
         kmlock.listeners = []
+        _LOGGER.debug(
+            "[unsubscribe_listeners] %s: Finished removing all listeners", kmlock.lock_name
+        )
 
     async def _update_listeners(self, kmlock: KeymasterLock) -> None:
         await KeymasterCoordinator._unsubscribe_listeners(kmlock=kmlock)

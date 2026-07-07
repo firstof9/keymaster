@@ -138,9 +138,19 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     if COORDINATOR not in hass.data[DOMAIN]:
         coordinator: KeymasterCoordinator = KeymasterCoordinator(hass)
         hass.data[DOMAIN][COORDINATOR] = coordinator
-        await coordinator.initial_setup()
-        await coordinator.async_refresh()
-        if not coordinator.last_update_success:
+        setup_success = True
+        try:
+            await coordinator.initial_setup()
+            await coordinator.async_refresh()
+            setup_success = coordinator.last_update_success
+        except Exception as err:
+            hass.data[DOMAIN].pop(COORDINATOR, None)
+            if isinstance(err, ConfigEntryNotReady | TypeError | AttributeError):
+                raise
+            raise ConfigEntryNotReady(f"Error during initial setup: {err}") from err
+
+        if not setup_success:
+            hass.data[DOMAIN].pop(COORDINATOR, None)
             raise ConfigEntryNotReady from coordinator.last_exception
     else:
         coordinator = hass.data[DOMAIN][COORDINATOR]
@@ -300,7 +310,7 @@ async def delete_coordinator(hass: HomeAssistant, unloaded_entry_id: str, _: dt)
     if coordinator is None:
         return
 
-    if len(coordinator.data) == 0 and not any(
+    if (coordinator.data is None or len(coordinator.data) == 0) and not any(
         entry.entry_id != unloaded_entry_id for entry in hass.config_entries.async_entries(DOMAIN)
     ):
         _LOGGER.debug("[delete_coordinator] All locks removed, removing coordinator")
